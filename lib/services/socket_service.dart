@@ -8,6 +8,8 @@ class SocketService {
 
   void connect({required String token}) {
     _socket?.disconnect();
+    
+    print('🔌 [Socket] Connecting with token...');
 
     _socket = IO.io(
       AppConfig.socketUrl,
@@ -17,6 +19,18 @@ class SocketService {
           .setAuth({'token': token})
           .build(),
     );
+
+    _socket!.onConnect((_) {
+      print('🔌 [Socket] Connected: ${_socket!.id}');
+    });
+
+    _socket!.onDisconnect((reason) {
+      print('🔌 [Socket] Disconnected: $reason');
+    });
+
+    _socket!.onConnectError((err) {
+      print('🔌 [Socket] Connection Error: $err');
+    });
 
     _socket!.connect();
   }

@@ -48,11 +48,17 @@ class ApiService {
 
   Map<String, String> _jsonHeaders() => {
         'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer ',
+        if (token != null) 'Authorization': 'Bearer $token',
       };
 
-  Uri _u(String path, [Map<String, String>? q]) =>
-      Uri.parse('').replace(queryParameters: q);
+  Uri _u(String path, [Map<String, String>? q]) {
+    final url = AppConfig.baseUrl.endsWith('/') 
+        ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1) 
+        : AppConfig.baseUrl;
+    final uri = Uri.parse('$url$path').replace(queryParameters: q);
+    print('📡 [API] ${new DateTime.now().toIso8601String()} Request: $uri');
+    return uri;
+  }
 
   Future<Map<String, dynamic>> login(String username, String password) async {
     var u = username.trim();
@@ -63,6 +69,8 @@ class ApiService {
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({'username': u, 'password': password}),
     );
+    
+    print('📡 [API] Login response: ${res.statusCode}');
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     if (res.statusCode != 200) throw Exception(data['error'] ?? 'Login failed');
     return data;
@@ -82,6 +90,7 @@ class ApiService {
       }),
     );
 
+    print('📡 [API] Register response: ${res.statusCode}');
     final body = res.body.isNotEmpty ? jsonDecode(res.body) : null;
     if (res.statusCode != 200 && res.statusCode != 201) {
       if (body is Map && body['error'] != null) throw Exception(body['error']);
@@ -91,6 +100,7 @@ class ApiService {
 
   Future<List<String>> getOnlineUsers() async {
     final res = await http.get(_u('/api/users/online'), headers: _jsonHeaders());
+    print('📡 [API] Online users response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed online users');
     final arr = jsonDecode(res.body) as List;
     return arr.map((e) => e.toString()).toList();
@@ -98,6 +108,7 @@ class ApiService {
 
   Future<List<AppUser>> getUsers() async {
     final res = await http.get(_u('/api/users'), headers: _jsonHeaders());
+    print('📡 [API] Get users response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed users');
     final arr = jsonDecode(res.body) as List;
     return arr.map((e) => AppUser.fromJson(e as Map<String, dynamic>)).toList();
@@ -105,6 +116,7 @@ class ApiService {
 
   Future<List<Conversation>> getConversations() async {
     final res = await http.get(_u('/api/conversations'), headers: _jsonHeaders());
+    print('📡 [API] Get conversations response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed conversations');
     final arr = jsonDecode(res.body) as List;
     return arr.map((e) => Conversation.fromJson(e as Map<String, dynamic>)).toList();
@@ -116,14 +128,16 @@ class ApiService {
       headers: _jsonHeaders(),
       body: jsonEncode({'participantIds': [otherUserId]}),
     );
+    print('📡 [API] Create conversation response: ${res.statusCode}');
     final data = jsonDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) throw Exception('Create conversation failed');
     return Conversation.fromJson(data as Map<String, dynamic>);
   }
 
   Future<List<ChatMessage>> getMessages(String convId, {int limit = 50, String? before}) async {
-    final q = <String, String>{'limit': '', if (before != null) 'before': before};
-    final res = await http.get(_u('/api/messages/', q), headers: _jsonHeaders());
+    final q = <String, String>{'limit': limit.toString(), if (before != null) 'before': before};
+    final res = await http.get(_u('/api/messages/$convId', q), headers: _jsonHeaders());
+    print('📡 [API] Get messages response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed messages');
     final arr = jsonDecode(res.body) as List;
     final msgs = arr.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>)).toList();
@@ -132,15 +146,17 @@ class ApiService {
   }
 
   Future<void> postPublicKey(String publicKey) async {
-    await http.post(
+    final res = await http.post(
       _u('/api/keys'),
       headers: _jsonHeaders(),
       body: jsonEncode({'publicKey': publicKey}),
     );
+    print('📡 [API] Post public key response: ${res.statusCode}');
   }
 
   Future<String?> getPeerPublicKey(String peerUserId) async {
-    final res = await http.get(_u('/api/keys/'), headers: _jsonHeaders());
+    final res = await http.get(_u('/api/keys/$peerUserId'), headers: _jsonHeaders());
+    print('📡 [API] Get peer public key response: ${res.statusCode}');
     if (res.statusCode != 200) return null;
     final data = jsonDecode(res.body);
     if (data is Map && data['publicKey'] != null) return data['publicKey'].toString();
@@ -150,7 +166,7 @@ class ApiService {
   Future<String> uploadFile(List<int> bytes, String filename) async {
     final uri = _u('/api/upload');
     final req = http.MultipartRequest('POST', uri);
-    req.headers['Authorization'] = 'Bearer ';
+    req.headers['Authorization'] = 'Bearer $token';
 
     final mimeType = lookupMimeType(filename) ?? 'application/octet-stream';
     final parts = mimeType.split('/');
@@ -159,6 +175,7 @@ class ApiService {
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: mt));
 
     final streamed = await req.send();
+    print('📡 [API] Upload file response: ${streamed.statusCode}');
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 200) throw Exception('Upload failed');
     final data = jsonDecode(body) as Map<String, dynamic>;

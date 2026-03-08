@@ -5,6 +5,7 @@ class ChatMessage {
   final String conversationId;
   final dynamic sender; // object or id
   final String? content;
+  final String? encryptedPayload;
   final String type; // text/image/voice/file/sticker
   final String? mediaUrl;
   final String status; // sent/delivered/read
@@ -15,6 +16,7 @@ class ChatMessage {
     required this.conversationId,
     required this.sender,
     required this.content,
+    required this.encryptedPayload,
     required this.type,
     required this.mediaUrl,
     required this.status,
@@ -26,6 +28,7 @@ class ChatMessage {
         conversationId: (j['conversationId'] ?? '').toString(),
         sender: j['sender'],
         content: j['content']?.toString(),
+        encryptedPayload: j['content']?.toString(),
         type: (j['type'] ?? 'text').toString(),
         mediaUrl: j['mediaUrl']?.toString(),
         status: (j['status'] ?? 'sent').toString(),
@@ -40,5 +43,23 @@ class ChatMessage {
   String senderId() {
     if (sender is Map<String, dynamic>) return ((sender as Map<String, dynamic>)['_id'] ?? '').toString();
     return (sender ?? '').toString();
+  }
+
+  ChatMessage copyWith({
+    String? content,
+    String? encryptedPayload,
+    String? status,
+  }) {
+    return ChatMessage(
+      id: id,
+      conversationId: conversationId,
+      sender: sender,
+      content: content ?? this.content,
+      encryptedPayload: encryptedPayload ?? this.encryptedPayload,
+      type: type,
+      mediaUrl: mediaUrl,
+      status: status ?? this.status,
+      timestamp: timestamp,
+    );
   }
 }

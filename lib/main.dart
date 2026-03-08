@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'services/api_service.dart';
 import 'services/socket_service.dart';
 import 'services/chat_store.dart';
+import 'services/encryption_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/chat_list_screen.dart';
 
@@ -21,9 +22,10 @@ class App extends StatelessWidget {
       providers: [
         Provider(create: (_) => ApiService()),
         Provider(create: (_) => SocketService()),
-        ChangeNotifierProxyProvider2<ApiService, SocketService, ChatStore>(
-          create: (_) => ChatStore(api: ApiService(), socketService: SocketService()),
-          update: (_, api, socket, __) => ChatStore(api: api, socketService: socket),
+        Provider(create: (_) => EncryptionService()),
+        ChangeNotifierProxyProvider3<ApiService, SocketService, EncryptionService, ChatStore>(
+          create: (_) => ChatStore(api: ApiService(), socketService: SocketService(), encryption: EncryptionService()),
+          update: (_, api, socket, encryption, __) => ChatStore(api: api, socketService: socket, encryption: encryption),
         ),
       ],
       child: const MaterialApp(

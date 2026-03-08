@@ -2,14 +2,17 @@
 import 'package:flutter/foundation.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
+import '../models/user.dart';
 import 'api_service.dart';
 import 'socket_service.dart';
+import 'encryption_service.dart';
 
 class ChatStore extends ChangeNotifier {
   final ApiService api;
   final SocketService socketService;
+  final EncryptionService encryption;
 
-  ChatStore({required this.api, required this.socketService});
+  ChatStore({required this.api, required this.socketService, required this.encryption});
 
   List<Conversation> conversations = [];
   List<ChatMessage> messages = [];
@@ -23,6 +26,7 @@ class ChatStore extends ChangeNotifier {
   Timer? _typingHideTimer;
 
   Future<void> init() async {
+    await encryption.init(api);
     onlineUsers = (await api.getOnlineUsers()).toSet();
     await loadConversations();
     _bindSocket();
@@ -31,8 +35,9 @@ class ChatStore extends ChangeNotifier {
   void _bindSocket() {
     final s = socketService.socket;
 
-    s.on('newMessage', (data) {
-      final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
+    s.on('newMessage', (data) async {
+      var msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
+      msg = await _decryptIfNeeded(msg);
       if (msg.conversationId == activeConversationId) {
         messages.add(msg);
         messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -70,6 +75,7 @@ class ChatStore extends ChangeNotifier {
           conversationId: old.conversationId,
           sender: old.sender,
           content: old.content,
+          encryptedPayload: old.encryptedPayload,
           type: old.type,
           mediaUrl: old.mediaUrl,
           status: status,
@@ -105,7 +111,8 @@ class ChatStore extends ChangeNotifier {
 
   Future<void> openConversation(String convId) async {
     activeConversationId = convId;
-    messages = await api.getMessages(convId, limit: 50);
+    final raw = await api.getMessages(convId, limit: 50);
+    messages = await _decryptMessages(raw);
     oldestTimestamp = messages.isNotEmpty ? messages.first.timestamp.toIso8601String() : null;
     typingText = null;
     notifyListeners();
@@ -117,10 +124,11 @@ class ChatStore extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final older = await api.getMessages(activeConversationId!, limit: 50, before: oldestTimestamp);
-      if (older.isEmpty) {
+      final olderRaw = await api.getMessages(activeConversationId!, limit: 50, before: oldestTimestamp);
+      if (olderRaw.isEmpty) {
         oldestTimestamp = null;
       } else {
+        final older = await _decryptMessages(olderRaw);
         oldestTimestamp = older.first.timestamp.toIso8601String();
         messages = [...older, ...messages];
         messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -136,13 +144,78 @@ class ChatStore extends ChangeNotifier {
     socketService.socket.emit('typing', {'conversationId': activeConversationId});
   }
 
-  void sendText(String text, {String type = 'text', String? mediaUrl}) {
+  Future<void> sendText(String text, {String type = 'text', String? mediaUrl}) async {
     if (activeConversationId == null) return;
+
+    var payload = text;
+    if (text.isNotEmpty && type == 'text') {
+      final peerId = await _getPeerUserId();
+      if (peerId != null) {
+        final peerKey = await api.getPeerPublicKey(peerId);
+        if (peerKey != null) {
+          final encrypted = await encryption.encryptForPeer(text, peerKey);
+          if (encrypted != null) {
+            payload = encrypted;
+          }
+        }
+      }
+    }
+
     socketService.socket.emit('sendMessage', {
       'conversationId': activeConversationId,
-      'content': text,
+      'content': payload,
       'type': type,
       'mediaUrl': mediaUrl,
     });
+  }
+
+  Future<String?> _getPeerUserId() async {
+    if (activeConversationId == null) return null;
+    Conversation? conv = conversations.firstWhere(
+      (c) => c.id == activeConversationId,
+      orElse: () => Conversation(id: '', type: 'direct', participants: const <AppUser>[]),
+    );
+
+    if (conv.id.isEmpty) {
+      try {
+        conversations = await api.getConversations();
+        conv = conversations.firstWhere(
+          (c) => c.id == activeConversationId,
+          orElse: () => Conversation(id: '', type: 'direct', participants: const <AppUser>[]),
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+
+    if (conv.id.isEmpty) return null;
+    if (conv.type != 'direct' || conv.participants.length < 2) return null;
+
+    final other = conv!.participants.firstWhere(
+      (p) => p.id != api.userId,
+      orElse: () => throw Exception('Other participant not found'),
+    );
+    return other.id;
+  }
+
+  Future<List<ChatMessage>> _decryptMessages(List<ChatMessage> list) async {
+    final result = <ChatMessage>[];
+    for (final msg in list) {
+      result.add(await _decryptIfNeeded(msg));
+    }
+    return result;
+  }
+
+  Future<ChatMessage> _decryptIfNeeded(ChatMessage msg) async {
+    final content = msg.content;
+    if (content == null || content.isEmpty) return msg;
+
+    final decrypted = await encryption.decryptMessage(content);
+    if (decrypted == null) return msg;
+
+    return msg.copyWith(
+      content: decrypted,
+      encryptedPayload: msg.encryptedPayload ?? content,
+    );
   }
 }

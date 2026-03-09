@@ -191,7 +191,7 @@ class ChatStore extends ChangeNotifier {
     if (conv.id.isEmpty) return null;
     if (conv.type != 'direct' || conv.participants.length < 2) return null;
 
-    final other = conv!.participants.firstWhere(
+    final other = conv.participants.firstWhere(
       (p) => p.id != api.userId,
       orElse: () => throw Exception('Other participant not found'),
     );

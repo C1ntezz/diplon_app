@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         );
                       } catch (e) {
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка: ')));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ошибка: ')));
                       } finally {
                         if (mounted) setState(() => loading = false);
                       }

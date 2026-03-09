@@ -24,8 +24,12 @@ class App extends StatelessWidget {
         Provider(create: (_) => SocketService()),
         Provider(create: (_) => EncryptionService()),
         ChangeNotifierProxyProvider3<ApiService, SocketService, EncryptionService, ChatStore>(
-          create: (_) => ChatStore(api: ApiService(), socketService: SocketService(), encryption: EncryptionService()),
-          update: (_, api, socket, encryption, __) => ChatStore(api: api, socketService: socket, encryption: encryption),
+          create: (context) => ChatStore(
+            api: context.read<ApiService>(),
+            socketService: context.read<SocketService>(),
+            encryption: context.read<EncryptionService>(),
+          ),
+          update: (_, api, socket, encryption, chatStore) => chatStore!,
         ),
       ],
       child: const MaterialApp(

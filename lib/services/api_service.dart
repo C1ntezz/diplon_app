@@ -56,7 +56,7 @@ class ApiService {
         ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1) 
         : AppConfig.baseUrl;
     final uri = Uri.parse('$url$path').replace(queryParameters: q);
-    print('📡 [API] ${new DateTime.now().toIso8601String()} Request: $uri');
+    print('📡 [API] ${DateTime.now().toIso8601String()} Request: $uri');
     return uri;
   }
 
@@ -80,14 +80,17 @@ class ApiService {
     var u = username.trim();
     if (u.startsWith('@')) u = u.substring(1);
 
+    final bodyMap = {
+      'username': u,
+      'password': password,
+    };
+    if (displayName != null) {
+      bodyMap['displayName'] = displayName;
+    }
     final res = await http.post(
       _u('/api/auth/register'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'username': u,
-        'password': password,
-        if (displayName != null) 'displayName': displayName,
-      }),
+      body: jsonEncode(bodyMap),
     );
 
     print('📡 [API] Register response: ${res.statusCode}');
@@ -135,7 +138,10 @@ class ApiService {
   }
 
   Future<List<ChatMessage>> getMessages(String convId, {int limit = 50, String? before}) async {
-    final q = <String, String>{'limit': limit.toString(), if (before != null) 'before': before};
+    final q = <String, String>{'limit': limit.toString()};
+    if (before != null) {
+      q['before'] = before;
+    }
     final res = await http.get(_u('/api/messages/$convId', q), headers: _jsonHeaders());
     print('📡 [API] Get messages response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed messages');
@@ -182,3 +188,4 @@ class ApiService {
     return (data['url'] ?? '').toString();
   }
 }
+

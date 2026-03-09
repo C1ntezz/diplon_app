@@ -3,49 +3,127 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as cryptography;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pointycastle/export.dart';
+import 'package:flutter/foundation.dart';
 
 import 'api_service.dart';
 
+// Moved outside the class so it can be run in a separate Isolate
+Map<String, String> _generateAndSerializeRsaKeyPair(dynamic _) {
+  final keyParams = RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64);
+  final secureRandom = FortunaRandom();
+  final seed = Uint8List(32);
+  final rand = Random.secure();
+  for (var i = 0; i < seed.length; i++) {
+    seed[i] = rand.nextInt(256);
+  }
+  secureRandom.seed(KeyParameter(seed));
+  final params = ParametersWithRandom(keyParams, secureRandom);
+
+  final generator = RSAKeyGenerator()..init(params);
+  final pair = generator.generateKeyPair();
+  
+  final pub = pair.publicKey as RSAPublicKey;
+  final priv = pair.privateKey as RSAPrivateKey;
+  
+  Uint8List b(BigInt number) {
+    var hex = number.toRadixString(16);
+    if (hex.length % 2 == 1) hex = '0$hex';
+    final result = Uint8List(hex.length ~/ 2);
+    for (var i = 0; i < result.length; i++) result[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    return result;
+  }
+
+  return {
+    'pub': jsonEncode({
+      'v': 1,
+      'n': base64Encode(b(pub.modulus!)),
+      'e': base64Encode(b(pub.exponent!)),
+    }),
+    'priv': jsonEncode({
+      'v': 1,
+      'n': base64Encode(b(priv.modulus!)),
+      'd': base64Encode(b(priv.privateExponent!)),
+      'p': base64Encode(b(priv.p!)),
+      'q': base64Encode(b(priv.q!)),
+    })
+  };
+}
+
 class EncryptionService {
-  final _storage = const FlutterSecureStorage();
   final _aes = cryptography.AesGcm.with256bits();
 
   RSAPublicKey? _publicKey;
   RSAPrivateKey? _privateKey;
   String? _publicKeySerialized;
+  String? _currentUserId;
 
   static const _storagePrivateKey = 'rsa_private_key_v1';
   static const _storagePublicKey = 'rsa_public_key_v1';
 
   Future<void> init(ApiService api) async {
-    final storedPriv = await _storage.read(key: _storagePrivateKey);
-    final storedPub = await _storage.read(key: _storagePublicKey);
+    final userId = api.userId;
+    if (userId == null) {
+      print('⚠️ [Encryption] init called but userId is NULL. Skipping.');
+      return;
+    }
+
+    // If already initialized for this user, don't do it again
+    if (_publicKey != null && _currentUserId == userId) {
+      print('🔐 [Encryption] Already initialized for user $userId');
+      return;
+    }
+
+    _currentUserId = userId;
+    final prefs = await SharedPreferences.getInstance();
+
+    // User-specific keys
+    final privKeyName = '${_storagePrivateKey}_$userId';
+    final pubKeyName = '${_storagePublicKey}_$userId';
+
+    final storedPriv = prefs.getString(privKeyName);
+    final storedPub = prefs.getString(pubKeyName);
+
+    print('🔐 [Encryption] Initializing for user: $userId');
 
     if (storedPriv != null && storedPub != null) {
+      print('🔐 [Encryption] Stored keys found. Deserializing...');
       _privateKey = _deserializePrivateKey(storedPriv);
       _publicKey = _deserializePublicKey(storedPub);
       _publicKeySerialized = storedPub;
+
+      if (_privateKey == null || _publicKey == null) {
+        print('❌ [Encryption] Deserialization failed! Keys corrupted?');
+        // Optionally: generate new keys if corrupted, but warn user
+      } else {
+        print('✅ [Encryption] Keys loaded and verified.');
+      }
     } else {
-      final pair = _generateRsaKeyPair();
-      _privateKey = pair.privateKey as RSAPrivateKey;
-      _publicKey = pair.publicKey as RSAPublicKey;
-
-      final pubSerialized = _serializePublicKey(_publicKey!);
-      final privSerialized = _serializePrivateKey(_privateKey!);
-
-      await _storage.write(key: _storagePublicKey, value: pubSerialized);
-      await _storage.write(key: _storagePrivateKey, value: privSerialized);
-
+      print('🔐 [Encryption] No stored keys for this user. Generating new pair...');
+      
+      // UI stay responsive
+      final keys = await compute(_generateAndSerializeRsaKeyPair, null);
+      
+      final pubSerialized = keys['pub']!;
+      final privSerialized = keys['priv']!;
+      
+      _publicKey = _deserializePublicKey(pubSerialized);
+      _privateKey = _deserializePrivateKey(privSerialized);
       _publicKeySerialized = pubSerialized;
+
+      print('🔐 [Encryption] Keys generated. Writing to SharedPreferences for $userId...');
+      await prefs.setString(pubKeyName, pubSerialized);
+      await prefs.setString(privKeyName, privSerialized);
     }
 
+    // Sync with server if we have a public key
     if (_publicKeySerialized != null) {
       try {
+        print('📡 [Encryption] Syncing public key with server...');
         await api.postPublicKey(_publicKeySerialized!);
-      } catch (_) {
-        // ignore sync failures; app can retry on next init
+      } catch (e) {
+        print('⚠️ [Encryption] Could not sync key with server: $e');
       }
     }
   }
@@ -117,17 +195,6 @@ class EncryptionService {
     }
   }
 
-  // --- RSA helpers ---
-
-  AsymmetricKeyPair<PublicKey, PrivateKey> _generateRsaKeyPair() {
-    final keyParams = RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64);
-    final secureRandom = _secureRandom();
-    final params = ParametersWithRandom(keyParams, secureRandom);
-
-    final generator = RSAKeyGenerator()..init(params);
-    return generator.generateKeyPair();
-  }
-
   Uint8List _rsaEncrypt(Uint8List data, RSAPublicKey publicKey) {
     final engine = PKCS1Encoding(RSAEngine())
       ..init(true, PublicKeyParameter<RSAPublicKey>(publicKey));
@@ -140,52 +207,17 @@ class EncryptionService {
     return engine.process(data);
   }
 
-  SecureRandom _secureRandom() {
-    final rng = FortunaRandom();
-    final seed = Uint8List(32);
-    final rand = Random.secure();
-    for (var i = 0; i < seed.length; i++) {
-      seed[i] = rand.nextInt(256);
-    }
-    rng.seed(KeyParameter(seed));
-    return rng;
-  }
-
-  String _serializePublicKey(RSAPublicKey key) {
-    final map = {
-      'v': 1,
-      'n': base64Encode(_bigIntToBytes(key.modulus!)),
-      'e': base64Encode(_bigIntToBytes(key.exponent!)),
-    };
-    return jsonEncode(map);
-  }
-
-  String _serializePrivateKey(RSAPrivateKey key) {
-    final map = {
-      'v': 1,
-      'n': base64Encode(_bigIntToBytes(key.modulus!)),
-      'd': base64Encode(_bigIntToBytes(key.privateExponent!)),
-      'p': base64Encode(_bigIntToBytes(key.p!)),
-      'q': base64Encode(_bigIntToBytes(key.q!)),
-    };
-    return jsonEncode(map);
-  }
-
   RSAPublicKey? _deserializePublicKey(String raw) {
     try {
       var decoded = jsonDecode(raw);
-      if (decoded is String) {
-        decoded = jsonDecode(decoded);
-      }
+      if (decoded is String) decoded = jsonDecode(decoded);
       if (decoded is Map) {
         final n = decoded['n']?.toString();
         final e = decoded['e']?.toString();
         if (n == null || e == null) return null;
         return RSAPublicKey(_bytesToBigInt(base64Decode(n)), _bytesToBigInt(base64Decode(e)));
       }
-    } catch (_) {
-      return null;
-    }
+    } catch (_) {}
     return null;
   }
 
@@ -205,23 +237,8 @@ class EncryptionService {
           _bytesToBigInt(base64Decode(q)),
         );
       }
-    } catch (_) {
-      return null;
-    }
+    } catch (_) {}
     return null;
-  }
-
-  Uint8List _bigIntToBytes(BigInt number) {
-    var hex = number.toRadixString(16);
-    if (hex.length % 2 == 1) {
-      hex = '0$hex';
-    }
-    final result = Uint8List(hex.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      final byteHex = hex.substring(i * 2, i * 2 + 2);
-      result[i] = int.parse(byteHex, radix: 16);
-    }
-    return result;
   }
 
   BigInt _bytesToBigInt(Uint8List bytes) {

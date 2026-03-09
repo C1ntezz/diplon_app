@@ -148,9 +148,12 @@ class ChatStore extends ChangeNotifier {
     if (activeConversationId == null) return;
 
     var payload = text;
+    var senderPayload = text; // То, что отправим зашифрованным для себя
+
     if (text.isNotEmpty && type == 'text') {
       final peerId = await _getPeerUserId();
       if (peerId != null) {
+        // 1. Шифруем для собеседника (чужим ключом)
         final peerKey = await api.getPeerPublicKey(peerId);
         if (peerKey != null) {
           final encrypted = await encryption.encryptForPeer(text, peerKey);
@@ -158,12 +161,22 @@ class ChatStore extends ChangeNotifier {
             payload = encrypted;
           }
         }
+
+        // 2. Шифруем для себя (своим публичным ключом)
+        final myKey = encryption.publicKeySerialized;
+        if (myKey != null) {
+           final encryptedSelf = await encryption.encryptForPeer(text, myKey);
+           if (encryptedSelf != null) {
+              senderPayload = encryptedSelf;
+           }
+        }
       }
     }
 
     socketService.socket.emit('sendMessage', {
       'conversationId': activeConversationId,
       'content': payload,
+      'senderContent': senderPayload,
       'type': type,
       'mediaUrl': mediaUrl,
     });
@@ -207,15 +220,21 @@ class ChatStore extends ChangeNotifier {
   }
 
   Future<ChatMessage> _decryptIfNeeded(ChatMessage msg) async {
-    final content = msg.content;
-    if (content == null || content.isEmpty) return msg;
+    // Определяем, моё ли это сообщение
+    final isMyMessage = msg.senderId() == api.userId;
+    
+    // Если это моё сообщение - расшифровываем senderContent (зашифровано для себя)
+    // Если чужое - расшифровываем content (зашифровано для меня собеседником)
+    final payloadToDecrypt = isMyMessage ? msg.senderContent : msg.content;
+    
+    if (payloadToDecrypt == null || payloadToDecrypt.isEmpty) return msg;
 
-    final decrypted = await encryption.decryptMessage(content);
+    final decrypted = await encryption.decryptMessage(payloadToDecrypt);
     if (decrypted == null) return msg;
 
     return msg.copyWith(
       content: decrypted,
-      encryptedPayload: msg.encryptedPayload ?? content,
+      encryptedPayload: msg.encryptedPayload ?? payloadToDecrypt,
     );
   }
 }

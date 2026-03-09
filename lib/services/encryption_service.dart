@@ -1,129 +1,73 @@
 import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as cryptography;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pointycastle/export.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:fast_rsa/fast_rsa.dart';
 import 'package:flutter/foundation.dart';
 
 import 'api_service.dart';
 
-// Moved outside the class so it can be run in a separate Isolate
-Map<String, String> _generateAndSerializeRsaKeyPair(dynamic _) {
-  final keyParams = RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64);
-  final secureRandom = FortunaRandom();
-  final seed = Uint8List(32);
-  final rand = Random.secure();
-  for (var i = 0; i < seed.length; i++) {
-    seed[i] = rand.nextInt(256);
-  }
-  secureRandom.seed(KeyParameter(seed));
-  final params = ParametersWithRandom(keyParams, secureRandom);
-
-  final generator = RSAKeyGenerator()..init(params);
-  final pair = generator.generateKeyPair();
-  
-  final pub = pair.publicKey as RSAPublicKey;
-  final priv = pair.privateKey as RSAPrivateKey;
-  
-  Uint8List b(BigInt number) {
-    var hex = number.toRadixString(16);
-    if (hex.length % 2 == 1) hex = '0$hex';
-    final result = Uint8List(hex.length ~/ 2);
-    for (var i = 0; i < result.length; i++) result[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
-    return result;
-  }
-
-  return {
-    'pub': jsonEncode({
-      'v': 1,
-      'n': base64Encode(b(pub.modulus!)),
-      'e': base64Encode(b(pub.exponent!)),
-    }),
-    'priv': jsonEncode({
-      'v': 1,
-      'n': base64Encode(b(priv.modulus!)),
-      'd': base64Encode(b(priv.privateExponent!)),
-      'p': base64Encode(b(priv.p!)),
-      'q': base64Encode(b(priv.q!)),
-    })
-  };
-}
-
 class EncryptionService {
   final _aes = cryptography.AesGcm.with256bits();
+  final _secureStorage = const FlutterSecureStorage();
 
-  RSAPublicKey? _publicKey;
-  RSAPrivateKey? _privateKey;
   String? _publicKeySerialized;
+  String? _privateKeySerialized;
   String? _currentUserId;
 
-  static const _storagePrivateKey = 'rsa_private_key_v1';
-  static const _storagePublicKey = 'rsa_public_key_v1';
+  static const _storagePrivateKey = 'rsa_private_key_v2';
+  static const _storagePublicKey = 'rsa_public_key_v2';
 
   Future<void> init(ApiService api) async {
     final userId = api.userId;
     if (userId == null) {
-      print('⚠️ [Encryption] init called but userId is NULL. Skipping.');
+      if (kDebugMode) print('⚠️ [Encryption] init called but userId is NULL. Skipping.');
       return;
     }
 
-    // If already initialized for this user, don't do it again
-    if (_publicKey != null && _currentUserId == userId) {
-      print('🔐 [Encryption] Already initialized for user $userId');
+    if (_publicKeySerialized != null && _currentUserId == userId) {
+      if (kDebugMode) print('🔐 [Encryption] Already initialized for user $userId');
       return;
     }
 
     _currentUserId = userId;
-    final prefs = await SharedPreferences.getInstance();
 
-    // User-specific keys
     final privKeyName = '${_storagePrivateKey}_$userId';
     final pubKeyName = '${_storagePublicKey}_$userId';
 
-    final storedPriv = prefs.getString(privKeyName);
-    final storedPub = prefs.getString(pubKeyName);
+    // Читаем из secure storage
+    final storedPriv = await _secureStorage.read(key: privKeyName);
+    final storedPub = await _secureStorage.read(key: pubKeyName);
 
-    print('🔐 [Encryption] Initializing for user: $userId');
+    if (kDebugMode) print('🔐 [Encryption] Initializing for user: $userId');
+    if (kDebugMode) print('🔐 [Encryption] Looking for keys: $privKeyName, $pubKeyName');
+    if (kDebugMode) print('🔐 [Encryption] Found private: ${storedPriv != null}, public: ${storedPub != null}');
 
     if (storedPriv != null && storedPub != null) {
-      print('🔐 [Encryption] Stored keys found. Deserializing...');
-      _privateKey = _deserializePrivateKey(storedPriv);
-      _publicKey = _deserializePublicKey(storedPub);
+      if (kDebugMode) print('🔐 [Encryption] Stored keys found. (v2)');
+      _privateKeySerialized = storedPriv;
       _publicKeySerialized = storedPub;
-
-      if (_privateKey == null || _publicKey == null) {
-        print('❌ [Encryption] Deserialization failed! Keys corrupted?');
-        // Optionally: generate new keys if corrupted, but warn user
-      } else {
-        print('✅ [Encryption] Keys loaded and verified.');
-      }
+      if (kDebugMode) print('✅ [Encryption] Keys loaded from secure storage.');
     } else {
-      print('🔐 [Encryption] No stored keys for this user. Generating new pair...');
+      if (kDebugMode) print('🔐 [Encryption] No stored keys (v2) for this user. Generating fast_rsa 2048 pair...');
       
-      // UI stay responsive
-      final keys = await compute(_generateAndSerializeRsaKeyPair, null);
+      final keyPair = await RSA.generate(2048);
       
-      final pubSerialized = keys['pub']!;
-      final privSerialized = keys['priv']!;
-      
-      _publicKey = _deserializePublicKey(pubSerialized);
-      _privateKey = _deserializePrivateKey(privSerialized);
-      _publicKeySerialized = pubSerialized;
+      _publicKeySerialized = keyPair.publicKey;
+      _privateKeySerialized = keyPair.privateKey;
 
-      print('🔐 [Encryption] Keys generated. Writing to SharedPreferences for $userId...');
-      await prefs.setString(pubKeyName, pubSerialized);
-      await prefs.setString(privKeyName, privSerialized);
+      if (kDebugMode) print('🔐 [Encryption] Keys generated instantly. Writing to secure storage for $userId...');
+      await _secureStorage.write(key: pubKeyName, value: _publicKeySerialized!);
+      await _secureStorage.write(key: privKeyName, value: _privateKeySerialized!);
+      if (kDebugMode) print('✅ [Encryption] Keys saved to secure storage.');
     }
 
-    // Sync with server if we have a public key
     if (_publicKeySerialized != null) {
       try {
-        print('📡 [Encryption] Syncing public key with server...');
+        if (kDebugMode) print('📡 [Encryption] Syncing public key with server...');
         await api.postPublicKey(_publicKeySerialized!);
       } catch (e) {
-        print('⚠️ [Encryption] Could not sync key with server: $e');
+        if (kDebugMode) print('⚠️ [Encryption] Could not sync key with server: $e');
       }
     }
   }
@@ -132,8 +76,7 @@ class EncryptionService {
 
   Future<String?> encryptForPeer(String plaintext, String peerPublicKey) async {
     try {
-      final peerKey = _deserializePublicKey(peerPublicKey);
-      if (peerKey == null) return null;
+      if (peerPublicKey.isEmpty) return null;
 
       final secretKey = await _aes.newSecretKey();
       final secretKeyBytes = await secretKey.extractBytes();
@@ -145,10 +88,10 @@ class EncryptionService {
         nonce: nonce,
       );
 
-      final encryptedKey = _rsaEncrypt(Uint8List.fromList(secretKeyBytes), peerKey);
+      final encryptedKey = await RSA.encryptPKCS1v15Bytes(Uint8List.fromList(secretKeyBytes), peerPublicKey);
 
       final payload = {
-        'v': 1,
+        'v': 2,
         'alg': 'AES-256-GCM',
         'key': base64Encode(encryptedKey),
         'nonce': base64Encode(secretBox.nonce),
@@ -157,7 +100,8 @@ class EncryptionService {
       };
 
       return jsonEncode(payload);
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Error encrypting: $e');
       return null;
     }
   }
@@ -173,10 +117,10 @@ class EncryptionService {
       final macB64 = decoded['mac']?.toString();
 
       if (keyB64 == null || nonceB64 == null || cipherB64 == null || macB64 == null) return null;
-      if (_privateKey == null) return null;
+      if (_privateKeySerialized == null) return null;
 
       final encryptedKey = base64Decode(keyB64);
-      final aesKey = _rsaDecrypt(encryptedKey, _privateKey!);
+      final aesKey = await RSA.decryptPKCS1v15Bytes(encryptedKey, _privateKeySerialized!);
 
       final secretBox = cryptography.SecretBox(
         base64Decode(cipherB64),
@@ -190,60 +134,73 @@ class EncryptionService {
       );
 
       return utf8.decode(clearBytes);
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Error decrypting: $e');
       return null;
     }
   }
 
-  Uint8List _rsaEncrypt(Uint8List data, RSAPublicKey publicKey) {
-    final engine = PKCS1Encoding(RSAEngine())
-      ..init(true, PublicKeyParameter<RSAPublicKey>(publicKey));
-    return engine.process(data);
+  /// Экспортирует ключи в JSON-строку для резервного копирования
+  Future<String?> exportKeys() async {
+    if (_privateKeySerialized == null || _publicKeySerialized == null) {
+      return null;
+    }
+    
+    final exportData = {
+      'version': 2,
+      'userId': _currentUserId,
+      'publicKey': _publicKeySerialized,
+      'privateKey': _privateKeySerialized,
+      'exportedAt': DateTime.now().toIso8601String(),
+    };
+    
+    return jsonEncode(exportData);
   }
 
-  Uint8List _rsaDecrypt(Uint8List data, RSAPrivateKey privateKey) {
-    final engine = PKCS1Encoding(RSAEngine())
-      ..init(false, PrivateKeyParameter<RSAPrivateKey>(privateKey));
-    return engine.process(data);
-  }
-
-  RSAPublicKey? _deserializePublicKey(String raw) {
+  /// Импортирует ключи из JSON-строки
+  Future<bool> importKeys(String jsonExport, ApiService api) async {
     try {
-      var decoded = jsonDecode(raw);
-      if (decoded is String) decoded = jsonDecode(decoded);
-      if (decoded is Map) {
-        final n = decoded['n']?.toString();
-        final e = decoded['e']?.toString();
-        if (n == null || e == null) return null;
-        return RSAPublicKey(_bytesToBigInt(base64Decode(n)), _bytesToBigInt(base64Decode(e)));
+      final data = jsonDecode(jsonExport);
+      if (data is! Map) return false;
+      
+      final version = data['version'];
+      if (version != 2) {
+        if (kDebugMode) print('⚠️ [Encryption] Unsupported key version: $version');
+        return false;
       }
-    } catch (_) {}
-    return null;
-  }
-
-  RSAPrivateKey? _deserializePrivateKey(String raw) {
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) {
-        final n = decoded['n']?.toString();
-        final d = decoded['d']?.toString();
-        final p = decoded['p']?.toString();
-        final q = decoded['q']?.toString();
-        if (n == null || d == null || p == null || q == null) return null;
-        return RSAPrivateKey(
-          _bytesToBigInt(base64Decode(n)),
-          _bytesToBigInt(base64Decode(d)),
-          _bytesToBigInt(base64Decode(p)),
-          _bytesToBigInt(base64Decode(q)),
-        );
+      
+      final publicKey = data['publicKey']?.toString();
+      final privateKey = data['privateKey']?.toString();
+      final exportedUserId = data['userId']?.toString();
+      
+      if (publicKey == null || privateKey == null) {
+        if (kDebugMode) print('⚠️ [Encryption] Missing keys in export');
+        return false;
       }
-    } catch (_) {}
-    return null;
-  }
-
-  BigInt _bytesToBigInt(Uint8List bytes) {
-    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    if (hex.isEmpty) return BigInt.zero;
-    return BigInt.parse(hex, radix: 16);
+      
+      // Проверяем, что ключи соответствуют текущему пользователю
+      final currentUserId = api.userId;
+      if (exportedUserId != null && exportedUserId != currentUserId) {
+        if (kDebugMode) print('⚠️ [Encryption] Key userId mismatch: $exportedUserId vs $currentUserId');
+        return false;
+      }
+      
+      // Сохраняем ключи
+      _publicKeySerialized = publicKey;
+      _privateKeySerialized = privateKey;
+      _currentUserId = currentUserId;
+      
+      final privKeyName = '${_storagePrivateKey}_$currentUserId';
+      final pubKeyName = '${_storagePublicKey}_$currentUserId';
+      
+      await _secureStorage.write(key: pubKeyName, value: publicKey);
+      await _secureStorage.write(key: privKeyName, value: privateKey);
+      
+      if (kDebugMode) print('✅ [Encryption] Keys imported successfully');
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Error importing keys: $e');
+      return false;
+    }
   }
 }

@@ -43,7 +43,12 @@ class ApiService {
 
   Future<void> logout() async {
     token = null; userId = null; username = null; displayName = null;
-    await _storage.deleteAll();
+    // НЕ делаем deleteAll(), чтобы сохранить ключи шифрования!
+    // Удаляем только сессионные данные
+    await _storage.delete(key: 'jwt_token');
+    await _storage.delete(key: 'userId');
+    await _storage.delete(key: 'username');
+    await _storage.delete(key: 'displayName');
   }
 
   Map<String, String> _jsonHeaders() => {

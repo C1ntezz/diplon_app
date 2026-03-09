@@ -5,6 +5,7 @@ class ChatMessage {
   final String conversationId;
   final dynamic sender; // object or id
   final String? content;
+  final String? senderContent; // То что зашифровано для меня самого
   final String? encryptedPayload;
   final String type; // text/image/voice/file/sticker
   final String? mediaUrl;
@@ -16,6 +17,7 @@ class ChatMessage {
     required this.conversationId,
     required this.sender,
     required this.content,
+    this.senderContent,
     required this.encryptedPayload,
     required this.type,
     required this.mediaUrl,
@@ -28,6 +30,7 @@ class ChatMessage {
         conversationId: (j['conversationId'] ?? '').toString(),
         sender: j['sender'],
         content: j['content']?.toString(),
+        senderContent: j['senderContent']?.toString(),
         encryptedPayload: j['content']?.toString(),
         type: (j['type'] ?? 'text').toString(),
         mediaUrl: j['mediaUrl']?.toString(),
@@ -47,6 +50,7 @@ class ChatMessage {
 
   ChatMessage copyWith({
     String? content,
+    String? senderContent,
     String? encryptedPayload,
     String? status,
   }) {
@@ -55,6 +59,7 @@ class ChatMessage {
       conversationId: conversationId,
       sender: sender,
       content: content ?? this.content,
+      senderContent: senderContent ?? this.senderContent,
       encryptedPayload: encryptedPayload ?? this.encryptedPayload,
       type: type,
       mediaUrl: mediaUrl,

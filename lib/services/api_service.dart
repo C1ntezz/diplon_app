@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -8,17 +8,21 @@ import '../app_config.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import 'api_client.dart';
 
 class ApiService {
   final _storage = const FlutterSecureStorage();
+  final _apiClient = ApiClient(); // Используем наш умный клиент
 
-  String? token;
+  String? token; // Это теперь accessToken
+  String? refreshToken;
   String? userId;
   String? username;
   String? displayName;
 
   Future<void> loadSession() async {
-    token = await _storage.read(key: 'jwt_token');
+    token = await _storage.read(key: 'accessToken') ?? await _storage.read(key: 'jwt_token');
+    refreshToken = await _storage.read(key: 'refreshToken');
     userId = await _storage.read(key: 'userId');
     username = await _storage.read(key: 'username');
     displayName = await _storage.read(key: 'displayName');
@@ -26,35 +30,43 @@ class ApiService {
 
   Future<void> saveSession({
     required String token,
+    required String refreshToken,
     required String userId,
     required String username,
     required String displayName,
   }) async {
     this.token = token;
+    this.refreshToken = refreshToken;
     this.userId = userId;
     this.username = username;
     this.displayName = displayName;
 
-    await _storage.write(key: 'jwt_token', value: token);
+    await _storage.write(key: 'accessToken', value: token);
+    await _storage.write(key: 'jwt_token', value: token); // Для обратной совместимости локально
+    await _storage.write(key: 'refreshToken', value: refreshToken);
     await _storage.write(key: 'userId', value: userId);
     await _storage.write(key: 'username', value: username);
     await _storage.write(key: 'displayName', value: displayName);
   }
 
   Future<void> logout() async {
-    token = null; userId = null; username = null; displayName = null;
-    // НЕ делаем deleteAll(), чтобы сохранить ключи шифрования!
-    // Удаляем только сессионные данные
+    try {
+      // Отправляем запрос на сервер, чтобы "убить" рефреш токен в БД
+      await _apiClient.post(_u('/api/auth/logout'), headers: {'Content-Type': 'application/json'});
+    } catch (e) {
+      print('Logout API error: $e');
+    }
+
+    token = null; refreshToken = null; userId = null; username = null; displayName = null;
+    
+    // Удаляем сессионные данные (НЕ deleteAll, чтобы ключи E2E остались)
+    await _storage.delete(key: 'accessToken');
     await _storage.delete(key: 'jwt_token');
+    await _storage.delete(key: 'refreshToken');
     await _storage.delete(key: 'userId');
     await _storage.delete(key: 'username');
     await _storage.delete(key: 'displayName');
   }
-
-  Map<String, String> _jsonHeaders() => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
 
   Uri _u(String path, [Map<String, String>? q]) {
     final url = AppConfig.baseUrl.endsWith('/') 
@@ -107,7 +119,7 @@ class ApiService {
   }
 
   Future<List<String>> getOnlineUsers() async {
-    final res = await http.get(_u('/api/users/online'), headers: _jsonHeaders());
+    final res = await _apiClient.get(_u('/api/users/online'), headers: {'Content-Type': 'application/json'});
     print('📡 [API] Online users response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed online users');
     final arr = jsonDecode(res.body) as List;
@@ -115,7 +127,7 @@ class ApiService {
   }
 
   Future<List<AppUser>> getUsers() async {
-    final res = await http.get(_u('/api/users'), headers: _jsonHeaders());
+    final res = await _apiClient.get(_u('/api/users'), headers: {'Content-Type': 'application/json'});
     print('📡 [API] Get users response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed users');
     final arr = jsonDecode(res.body) as List;
@@ -123,7 +135,7 @@ class ApiService {
   }
 
   Future<List<Conversation>> getConversations() async {
-    final res = await http.get(_u('/api/conversations'), headers: _jsonHeaders());
+    final res = await _apiClient.get(_u('/api/conversations'), headers: {'Content-Type': 'application/json'});
     print('📡 [API] Get conversations response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed conversations');
     final arr = jsonDecode(res.body) as List;
@@ -131,9 +143,9 @@ class ApiService {
   }
 
   Future<Conversation> createConversation(String otherUserId) async {
-    final res = await http.post(
+    final res = await _apiClient.post(
       _u('/api/conversations'),
-      headers: _jsonHeaders(),
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'participantIds': [otherUserId]}),
     );
     print('📡 [API] Create conversation response: ${res.statusCode}');
@@ -147,7 +159,7 @@ class ApiService {
     if (before != null) {
       q['before'] = before;
     }
-    final res = await http.get(_u('/api/messages/$convId', q), headers: _jsonHeaders());
+    final res = await _apiClient.get(_u('/api/messages/$convId', q), headers: {'Content-Type': 'application/json'});
     print('📡 [API] Get messages response: ${res.statusCode}');
     if (res.statusCode != 200) throw Exception('Failed messages');
     final arr = jsonDecode(res.body) as List;
@@ -157,16 +169,16 @@ class ApiService {
   }
 
   Future<void> postPublicKey(String publicKey) async {
-    final res = await http.post(
+    final res = await _apiClient.post(
       _u('/api/keys'),
-      headers: _jsonHeaders(),
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'publicKey': publicKey}),
     );
     print('📡 [API] Post public key response: ${res.statusCode}');
   }
 
   Future<String?> getPeerPublicKey(String peerUserId) async {
-    final res = await http.get(_u('/api/keys/$peerUserId'), headers: _jsonHeaders());
+    final res = await _apiClient.get(_u('/api/keys/$peerUserId'), headers: {'Content-Type': 'application/json'});
     print('📡 [API] Get peer public key response: ${res.statusCode}');
     if (res.statusCode != 200) return null;
     final data = jsonDecode(res.body);
@@ -176,8 +188,9 @@ class ApiService {
 
   Future<String> uploadFile(List<int> bytes, String filename) async {
     final uri = _u('/api/upload');
+    // For multipart, we need to pass a BaseRequest through ApiClient
     final req = http.MultipartRequest('POST', uri);
-    req.headers['Authorization'] = 'Bearer $token';
+    // ApiClient will automatically add Authorization header
 
     final mimeType = lookupMimeType(filename) ?? 'application/octet-stream';
     final parts = mimeType.split('/');
@@ -185,7 +198,7 @@ class ApiService {
 
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: mt));
 
-    final streamed = await req.send();
+    final streamed = await _apiClient.send(req);
     print('📡 [API] Upload file response: ${streamed.statusCode}');
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode != 200) throw Exception('Upload failed');
@@ -193,4 +206,3 @@ class ApiService {
     return (data['url'] ?? '').toString();
   }
 }
-

@@ -57,8 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
       // После успешной регистрации сразу делаем логин, либо просто логинимся
       final data = await api.login(username, password);
       
+      // ИСПОЛЬЗУЕМ refreshToken
       await api.saveSession(
-        token: data['token'].toString(),
+        token: data['accessToken']?.toString() ?? data['token'].toString(),
+        refreshToken: data['refreshToken']?.toString() ?? '',
         userId: data['userId'].toString(),
         username: data['username'].toString(),
         displayName: (data['displayName'] ?? data['username']).toString(),

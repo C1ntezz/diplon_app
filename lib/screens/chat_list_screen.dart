@@ -425,20 +425,49 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (c.updatedAt != null)
+                  Text(
+                    '${c.updatedAt!.hour.toString().padLeft(2, '0')}:${c.updatedAt!.minute.toString().padLeft(2, '0')}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 if (isPinned)
                   const Padding(
                     padding: EdgeInsets.only(left: 6),
-                    child: Icon(Icons.push_pin, size: 18, color: Colors.amber),
+                    child: Icon(Icons.push_pin, size: 14, color: Colors.amber),
                   ),
               ],
             ),
-            trailing: IconButton(
-              icon: Icon(
-                isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                color: isPinned ? Colors.amber[700] : Colors.grey,
+            subtitle: Text(
+              c.lastMessage?.content ?? (c.lastMessage?.type == 'image' ? '📷 Изображение' : 'Нет сообщений'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: c.unreadCount > 0 ? Colors.black87 : (c.lastMessage == null ? Colors.grey[400] : Colors.grey[600]),
+                fontWeight: c.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
               ),
-              tooltip: isPinned ? 'Открепить чат' : 'Закрепить чат',
-              onPressed: () => store.toggleConversationPinned(c.id),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (c.unreadCount > 0)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                IconButton(
+                  icon: Icon(
+                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    color: isPinned ? Colors.amber[700] : Colors.grey,
+                  ),
+                  tooltip: isPinned ? 'Открепить чат' : 'Закрепить чат',
+                  onPressed: () => store.toggleConversationPinned(c.id),
+                ),
+              ],
             ),
             onTap: () async {
               await store.openConversation(c.id);

@@ -8,6 +8,7 @@ import '../models/user.dart';
 import 'api_service.dart';
 import 'encryption_service.dart';
 import 'socket_service.dart';
+import 'notification_service.dart';
 
 class ChatStore extends ChangeNotifier {
   final ApiService api;
@@ -45,7 +46,9 @@ class ChatStore extends ChangeNotifier {
     s.on('newMessage', (data) async {
       var msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
       msg = await _decryptIfNeeded(msg);
+      
       if (msg.conversationId == activeConversationId) {
+        // Мы сейчас внутри этого чата, просто добавляем сообщение
         messages.add(msg);
         messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         notifyListeners();
@@ -54,7 +57,18 @@ class ChatStore extends ChangeNotifier {
           if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
           if (msg.status != 'read') s.emit('messageRead', msg.id);
         }
+      } else {
+        // Сообщение из ДРУГОГО чата. Показываем локальный Push!
+        if (msg.senderId() != api.userId) {
+          final senderName = msg.senderAsUser()?.title ?? 'Новое сообщение';
+          final text = msg.content ?? (msg.type == 'image' ? '📷 Изображение' : 'Файл');
+          await NotificationService().showNewMessageNotification(senderName, text);
+          
+          if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
+        }
       }
+      
+      // Обновляем список чатов (чтобы обновилось последнее сообщение и сортировка)
       loadConversations();
     });
 
@@ -112,6 +126,14 @@ class ChatStore extends ChangeNotifier {
 
   Future<void> loadConversations() async {
     conversations = await api.getConversations();
+    
+    // Расшифровываем последнее сообщение для списка чатов
+    for (var i = 0; i < conversations.length; i++) {
+      if (conversations[i].lastMessage != null) {
+        conversations[i].lastMessage = await _decryptIfNeeded(conversations[i].lastMessage!);
+      }
+    }
+    
     _sortConversations();
     notifyListeners();
   }
@@ -263,8 +285,11 @@ class ChatStore extends ChangeNotifier {
       if (aPinned != bPinned) {
         return aPinned ? -1 : 1;
       }
-
-      return 0;
+      
+      // Сортировка по времени последнего обновления (updatedAt)
+      final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
     });
   }
 }

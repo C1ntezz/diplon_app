@@ -5,6 +5,8 @@ import '../services/socket_service.dart';
 import '../services/chat_store.dart';
 import 'chat_list_screen.dart';
 
+import 'package:workmanager/workmanager.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -71,6 +73,16 @@ class _LoginScreenState extends State<LoginScreen> {
       
       // Инициализация хранилища (здесь же происходит генерация ключей RSA-2048 через fast_rsa!)
       await context.read<ChatStore>().init();
+
+      // Регистрируем фоновую задачу только после успешного входа
+      Workmanager().registerPeriodicTask(
+        "diplom_messenger_sync_task",
+        "backgroundSync",
+        frequency: const Duration(minutes: 15),
+        constraints: Constraints(
+          networkType: NetworkType.connected, // Только если есть интернет
+        ),
+      );
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

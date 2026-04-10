@@ -7,9 +7,31 @@ import 'services/chat_store.dart';
 import 'services/encryption_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/chat_list_screen.dart';
+import 'services/notification_service.dart';
+import 'package:workmanager/workmanager.dart';
+
+@pragma('vm:entry-point')
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    // В будущем здесь мы реализуем проверку новых сообщений по HTTP,
+    // но пока просто возвращаем true (заглушка)
+    print("⏳ [WorkManager] Выполнение фоновой задачи: $task");
+    return Future.value(true);
+  });
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Инициализация уведомлений
+  await NotificationService().init();
+  
+  // Инициализация Workmanager для фоновых задач
+  Workmanager().initialize(
+    callbackDispatcher, 
+    isInDebugMode: false // Включи true для логов при разработке
+  );
+
   runApp(const App());
 }
 

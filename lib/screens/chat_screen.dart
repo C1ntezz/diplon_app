@@ -134,6 +134,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: TextField(
                       controller: input,
                       onChanged: (_) => store.emitTyping(),
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) {
+                        final text = input.text.trim();
+                        if (text.isEmpty) return;
+                        store.sendText(text);
+                        input.clear();
+                        FocusScope.of(context).requestFocus(FocusNode()); // Оставляем фокус/закрываем клаву
+                      },
                       decoration: const InputDecoration(
                         hintText: 'Type a message...',
                         border: OutlineInputBorder(),

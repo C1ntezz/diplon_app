@@ -1,7 +1,4 @@
-<<<<<<< HEAD
-=======
-import 'package:flutter/foundation.dart';
->>>>>>> 6a5430d (Initial Flutter app commit)
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -13,11 +10,8 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
-<<<<<<< HEAD
-=======
     if (kIsWeb) return;
 
->>>>>>> 6a5430d (Initial Flutter app commit)
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
     
@@ -28,11 +22,8 @@ class NotificationService {
   }
 
   Future<void> showNewMessageNotification(String senderName, String message) async {
-<<<<<<< HEAD
-=======
     if (kIsWeb) return;
 
->>>>>>> 6a5430d (Initial Flutter app commit)
     const androidDetails = AndroidNotificationDetails(
       'diplom_messenger_channel', 
       'Сообщения',

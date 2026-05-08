@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -68,8 +68,6 @@ class ApiService {
     await _storage.delete(key: 'displayName');
   }
 
-<<<<<<< HEAD
-=======
   Future<void> updateProfile({
     required String username,
     required String displayName,
@@ -125,7 +123,6 @@ class ApiService {
     }
   }
 
->>>>>>> 6a5430d (Initial Flutter app commit)
   Uri _u(String path, [Map<String, String>? q]) {
     final url = AppConfig.baseUrl.endsWith('/') 
         ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1) 

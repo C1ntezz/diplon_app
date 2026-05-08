@@ -1,13 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 
-<<<<<<< HEAD
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
-
-=======
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -19,7 +14,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _savingProfile = false;
   bool _changingPassword = false;
 
->>>>>>> 6a5430d (Initial Flutter app commit)
   Future<void> _logout(BuildContext context) async {
     final api = context.read<ApiService>();
 
@@ -40,13 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-<<<<<<< HEAD
-  @override
-  Widget build(BuildContext context) {
-    const String displayName = 'slon';
-    const String username = 'slon';
-    const String email = 'slon@example.com';
-=======
   Future<void> _showEditProfileDialog() async {
     final api = context.read<ApiService>();
     final usernameController = TextEditingController(text: api.username ?? '');
@@ -324,7 +311,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final api = context.read<ApiService>();
     final displayName = (api.displayName ?? api.username ?? 'Пользователь').trim();
     final username = (api.username ?? '').trim();
->>>>>>> 6a5430d (Initial Flutter app commit)
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F9),
@@ -355,15 +341,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Stack(
                   children: [
-<<<<<<< HEAD
-                    const CircleAvatar(
-                      radius: 46,
-                      backgroundColor: Color(0xFFE9EEF5),
-                      child: Icon(
-                        Icons.person,
-                        size: 46,
-                        color: Colors.black54,
-=======
                     CircleAvatar(
                       radius: 46,
                       backgroundColor: const Color(0xFFE9EEF5),
@@ -374,7 +351,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           fontWeight: FontWeight.w700,
                           color: Colors.black54,
                         ),
->>>>>>> 6a5430d (Initial Flutter app commit)
                       ),
                     ),
                     Positioned(
@@ -389,11 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           border: Border.all(color: Colors.white, width: 2),
                         ),
                         child: const Icon(
-<<<<<<< HEAD
-                          Icons.camera_alt,
-=======
                           Icons.edit,
->>>>>>> 6a5430d (Initial Flutter app commit)
                           size: 14,
                           color: Colors.white,
                         ),
@@ -402,46 +374,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-<<<<<<< HEAD
-                const Text(
-                  displayName,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-=======
                 Text(
                   displayName,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
->>>>>>> 6a5430d (Initial Flutter app commit)
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 6),
-<<<<<<< HEAD
-                const Text(
-                  '@$username',
-                  style: TextStyle(
-=======
                 Text(
                   username.isNotEmpty ? '@$username' : '@',
                   style: const TextStyle(
->>>>>>> 6a5430d (Initial Flutter app commit)
                     fontSize: 15,
                     color: Colors.grey,
                   ),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
-<<<<<<< HEAD
-                  onPressed: () {},
-                  icon: const Icon(Icons.photo_camera_outlined),
-                  label: const Text('Изменить фото'),
-=======
                   onPressed: _savingProfile ? null : _showEditProfileDialog,
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Изменить профиль'),
->>>>>>> 6a5430d (Initial Flutter app commit)
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 18,
@@ -457,35 +410,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 18),
           _buildSectionCard(
-<<<<<<< HEAD
-            children: const [
-=======
             children: [
->>>>>>> 6a5430d (Initial Flutter app commit)
               _InfoTile(
                 icon: Icons.person_outline,
                 title: 'Имя',
                 subtitle: displayName,
               ),
-<<<<<<< HEAD
-              Divider(height: 1),
-              _InfoTile(
-                icon: Icons.alternate_email,
-                title: 'Username',
-                subtitle: '@slon',
-              ),
-              Divider(height: 1),
-              _InfoTile(
-                icon: Icons.email_outlined,
-                title: 'Email',
-                subtitle: email,
-=======
               const Divider(height: 1),
               _InfoTile(
                 icon: Icons.alternate_email,
                 title: 'Username',
                 subtitle: username.isNotEmpty ? '@$username' : '@',
->>>>>>> 6a5430d (Initial Flutter app commit)
               ),
             ],
           ),
@@ -494,23 +429,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               _ActionTile(
                 icon: Icons.edit_outlined,
-<<<<<<< HEAD
-                title: 'Изменить имя',
-                onTap: () {},
-=======
                 title: 'Изменить профиль',
                 onTap: _savingProfile ? null : _showEditProfileDialog,
->>>>>>> 6a5430d (Initial Flutter app commit)
               ),
               const Divider(height: 1),
               _ActionTile(
                 icon: Icons.lock_outline,
                 title: 'Сменить пароль',
-<<<<<<< HEAD
-                onTap: () {},
-=======
                 onTap: _changingPassword ? null : _showChangePasswordDialog,
->>>>>>> 6a5430d (Initial Flutter app commit)
               ),
               const Divider(height: 1),
               _ActionTile(
@@ -586,11 +512,7 @@ class _InfoTile extends StatelessWidget {
 class _ActionTile extends StatelessWidget {
   final IconData icon;
   final String title;
-<<<<<<< HEAD
-  final VoidCallback onTap;
-=======
   final VoidCallback? onTap;
->>>>>>> 6a5430d (Initial Flutter app commit)
   final Color? iconColor;
   final Color? textColor;
 
@@ -605,10 +527,7 @@ class _ActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-<<<<<<< HEAD
-=======
       enabled: onTap != null,
->>>>>>> 6a5430d (Initial Flutter app commit)
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
       leading: Icon(icon, color: iconColor ?? Colors.blueGrey),
       title: Text(
@@ -622,8 +541,4 @@ class _ActionTile extends StatelessWidget {
       onTap: onTap,
     );
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 6a5430d (Initial Flutter app commit)

@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+<<<<<<< HEAD
+=======
+import 'package:flutter/foundation.dart';
+>>>>>>> 6a5430d (Initial Flutter app commit)
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
@@ -21,6 +25,10 @@ class _LoginScreenState extends State<LoginScreen> {
   
   bool loading = false;
   bool isLogin = true; // Toggle between Login and Register modes
+<<<<<<< HEAD
+=======
+  bool _obscurePassword = true;
+>>>>>>> 6a5430d (Initial Flutter app commit)
 
   @override
   void dispose() {
@@ -74,6 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Инициализация хранилища (здесь же происходит генерация ключей RSA-2048 через fast_rsa!)
       await context.read<ChatStore>().init();
 
+<<<<<<< HEAD
       // Регистрируем фоновую задачу только после успешного входа
       Workmanager().registerPeriodicTask(
         "diplom_messenger_sync_task",
@@ -83,6 +92,20 @@ class _LoginScreenState extends State<LoginScreen> {
           networkType: NetworkType.connected, // Только если есть интернет
         ),
       );
+=======
+      // Регистрируем фоновую задачу только после успешного входа.
+      // Workmanager не поддерживается в Flutter Web.
+      if (!kIsWeb) {
+        Workmanager().registerPeriodicTask(
+          "diplom_messenger_sync_task",
+          "backgroundSync",
+          frequency: const Duration(minutes: 15),
+          constraints: Constraints(
+            networkType: NetworkType.connected, // Только если есть интернет
+          ),
+        );
+      }
+>>>>>>> 6a5430d (Initial Flutter app commit)
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -153,12 +176,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 TextField(
                   controller: p, 
+<<<<<<< HEAD
                   decoration: const InputDecoration(
                     labelText: 'Пароль',
                     prefixIcon: Icon(Icons.password),
                     border: OutlineInputBorder(),
                   ),
                   obscureText: true,
+=======
+                  decoration: InputDecoration(
+                    labelText: 'Пароль',
+                    prefixIcon: const Icon(Icons.password),
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword ? 'Показать пароль' : 'Скрыть пароль',
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                  obscureText: _obscurePassword,
+>>>>>>> 6a5430d (Initial Flutter app commit)
                 ),
                 const SizedBox(height: 24),
                 

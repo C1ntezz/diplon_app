@@ -1,3 +1,8 @@
+<<<<<<< HEAD
 {
     "cmake.sourceDirectory": "Z:/diploma-messenger/diplon_app/linux"
+=======
+{
+    "cmake.sourceDirectory": "Z:/diploma-messenger/diplon_app/linux"
+>>>>>>> 6a5430d (Initial Flutter app commit)
 }

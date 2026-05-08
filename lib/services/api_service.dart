@@ -68,6 +68,64 @@ class ApiService {
     await _storage.delete(key: 'displayName');
   }
 
+<<<<<<< HEAD
+=======
+  Future<void> updateProfile({
+    required String username,
+    required String displayName,
+  }) async {
+    var u = username.trim();
+    if (u.startsWith('@')) u = u.substring(1);
+    final d = displayName.trim();
+
+    final res = await _apiClient.put(
+      _u('/api/auth/profile'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': u,
+        'displayName': d.isNotEmpty ? d : u,
+      }),
+    );
+
+    print('📡 [API] Update profile response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) as Map<String, dynamic> : <String, dynamic>{};
+
+    if (res.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Update profile failed');
+    }
+
+    await saveSession(
+      token: data['accessToken']?.toString() ?? data['token'].toString(),
+      refreshToken: data['refreshToken']?.toString() ?? refreshToken ?? '',
+      userId: data['userId']?.toString() ?? userId ?? '',
+      username: data['username']?.toString() ?? u,
+      displayName: data['displayName']?.toString() ?? d,
+    );
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final res = await _apiClient.put(
+      _u('/api/auth/password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      }),
+    );
+
+    print('📡 [API] Change password response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : null;
+
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Change password failed');
+    }
+  }
+
+>>>>>>> 6a5430d (Initial Flutter app commit)
   Uri _u(String path, [Map<String, String>? q]) {
     final url = AppConfig.baseUrl.endsWith('/') 
         ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1) 

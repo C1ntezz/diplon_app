@@ -32,6 +32,11 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+<<<<<<< HEAD
+=======
+node_modules/
+.flutter-plugins
+>>>>>>> 6a5430d (Initial Flutter app commit)
 
 # Symbolication related
 app.*.symbols

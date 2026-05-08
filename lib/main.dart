@@ -1,4 +1,8 @@
 ﻿import 'package:flutter/material.dart';
+<<<<<<< HEAD
+=======
+import 'package:flutter/foundation.dart';
+>>>>>>> 6a5430d (Initial Flutter app commit)
 import 'package:provider/provider.dart';
 
 import 'services/api_service.dart';
@@ -26,11 +30,21 @@ void main() async {
   // Инициализация уведомлений
   await NotificationService().init();
   
+<<<<<<< HEAD
   // Инициализация Workmanager для фоновых задач
   Workmanager().initialize(
     callbackDispatcher, 
     isInDebugMode: false // Включи true для логов при разработке
   );
+=======
+  // Workmanager не поддерживается в Flutter Web.
+  if (!kIsWeb) {
+    Workmanager().initialize(
+      callbackDispatcher,
+      isInDebugMode: false // Включи true для логов при разработке
+    );
+  }
+>>>>>>> 6a5430d (Initial Flutter app commit)
 
   runApp(const App());
 }

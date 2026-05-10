@@ -11,6 +11,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const _passwordRulesText =
+      'Минимум 9 символов, одна заглавная буква и один спецсимвол';
+
   bool _savingProfile = false;
   bool _changingPassword = false;
 
@@ -144,6 +147,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // закрывающийся route еще может достраивать TextField в течение кадра.
   }
 
+  String? _passwordRuleError(String password) {
+    if (password.length < 9) {
+      return 'Пароль должен быть не короче 9 символов';
+    }
+    if (RegExp(r'\s').hasMatch(password)) {
+      return 'Пароль не должен содержать пробелы';
+    }
+    if (!RegExp(r'[A-ZА-ЯЁ]').hasMatch(password)) {
+      return 'Пароль должен содержать хотя бы одну заглавную букву';
+    }
+    if (!RegExp(r'''[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]''').hasMatch(password)) {
+      return 'Пароль должен содержать хотя бы один спецсимвол';
+    }
+    return null;
+  }
+
   Future<void> _showChangePasswordDialog() async {
     final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
@@ -199,7 +218,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   border: const OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 8),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: EdgeInsets.only(left: 12, right: 8),
+                  child: Text(
+                    _passwordRulesText,
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               TextField(
                 controller: repeatPasswordController,
                 obscureText: obscureRepeatPassword,
@@ -241,9 +271,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         return;
                       }
 
-                      if (newPassword.length < 6) {
+                      final passwordError = _passwordRuleError(newPassword);
+                      if (passwordError != null) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Новый пароль должен быть не короче 6 символов')),
+                          SnackBar(content: Text(passwordError)),
                         );
                         return;
                       }

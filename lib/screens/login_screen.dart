@@ -17,6 +17,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _passwordRulesText =
+      'Минимум 9 символов, одна заглавная буква и один спецсимвол';
+
   final u = TextEditingController();
   final p = TextEditingController();
   final d = TextEditingController(); // Display name for registration
@@ -199,6 +202,16 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    if (!isLogin) {
+      final passwordError = _passwordRuleError(password);
+      if (passwordError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(passwordError)),
+        );
+        return;
+      }
+    }
+
     setState(() => loading = true);
     
     try {
@@ -243,6 +256,22 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  String? _passwordRuleError(String password) {
+    if (password.length < 9) {
+      return 'Пароль должен быть не короче 9 символов';
+    }
+    if (RegExp(r'\s').hasMatch(password)) {
+      return 'Пароль не должен содержать пробелы';
+    }
+    if (!RegExp(r'[A-ZА-ЯЁ]').hasMatch(password)) {
+      return 'Пароль должен содержать хотя бы одну заглавную букву';
+    }
+    if (!RegExp(r'''[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]''').hasMatch(password)) {
+      return 'Пароль должен содержать хотя бы один спецсимвол';
+    }
+    return null;
   }
 
   @override
@@ -303,6 +332,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: InputDecoration(
                     labelText: 'Пароль',
                     prefixIcon: const Icon(Icons.password),
+                    helperText: isLogin ? null : _passwordRulesText,
+                    helperMaxLines: 2,
                     suffixIcon: IconButton(
                       tooltip: _obscurePassword ? 'Показать пароль' : 'Скрыть пароль',
                       icon: Icon(

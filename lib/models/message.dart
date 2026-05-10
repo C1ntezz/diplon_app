@@ -10,6 +10,7 @@ class ChatMessage {
   final String type; // text/image/voice/file/sticker
   final String? mediaUrl;
   final String status; // sent/delivered/read
+  final List<String> readBy;
   final DateTime timestamp;
 
   ChatMessage({
@@ -22,6 +23,7 @@ class ChatMessage {
     required this.type,
     required this.mediaUrl,
     required this.status,
+    this.readBy = const [],
     required this.timestamp,
   });
 
@@ -35,8 +37,14 @@ class ChatMessage {
         type: (j['type'] ?? 'text').toString(),
         mediaUrl: j['mediaUrl']?.toString(),
         status: (j['status'] ?? 'sent').toString(),
+        readBy: (j['readBy'] as List? ?? []).map(_userIdFromJson).toList(),
         timestamp: DateTime.tryParse((j['timestamp'] ?? '').toString()) ?? DateTime.now(),
       );
+
+  static String _userIdFromJson(dynamic value) {
+    if (value is Map<String, dynamic>) return (value['_id'] ?? '').toString();
+    return value?.toString() ?? '';
+  }
 
   AppUser? senderAsUser() {
     if (sender is Map<String, dynamic>) return AppUser.fromJson(sender as Map<String, dynamic>);
@@ -53,6 +61,7 @@ class ChatMessage {
     String? senderContent,
     String? encryptedPayload,
     String? status,
+    List<String>? readBy,
   }) {
     return ChatMessage(
       id: id,
@@ -64,6 +73,7 @@ class ChatMessage {
       type: type,
       mediaUrl: mediaUrl,
       status: status ?? this.status,
+      readBy: readBy ?? this.readBy,
       timestamp: timestamp,
     );
   }

@@ -72,4 +72,26 @@ class Conversation {
         )
         .role;
   }
+
+  Conversation copyWith({
+    String? id,
+    String? type,
+    String? name,
+    List<AppUser>? participants,
+    List<GroupRole>? roles,
+    ChatMessage? lastMessage,
+    DateTime? updatedAt,
+    int? unreadCount,
+  }) {
+    return Conversation(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      name: name ?? this.name,
+      participants: participants ?? this.participants,
+      roles: roles ?? this.roles,
+      lastMessage: lastMessage ?? this.lastMessage,
+      updatedAt: updatedAt ?? this.updatedAt,
+      unreadCount: unreadCount ?? this.unreadCount,
+    );
+  }
 }

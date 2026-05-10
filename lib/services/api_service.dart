@@ -344,6 +344,20 @@ class ApiService {
     }
   }
 
+  Future<void> markConversationRead(String conversationId) async {
+    final res = await _apiClient.post(
+      _u('/api/conversations/$conversationId/read'),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    print('📡 [API] Mark conversation read response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : null;
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Mark conversation read failed');
+    }
+  }
+
   Future<List<ChatMessage>> getMessages(String convId, {int limit = 50, String? before}) async {
     final q = <String, String>{'limit': limit.toString()};
     if (before != null) {

@@ -66,7 +66,7 @@ class ChatStore extends ChangeNotifier {
 
         if (msg.senderId() != api.userId) {
           if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
-          if (msg.status != 'read') s.emit('messageRead', msg.id);
+          if (!msg.readBy.contains(api.userId)) s.emit('messageRead', msg.id);
         }
       } else {
         // Сообщение из ДРУГОГО чата. Показываем локальный Push!
@@ -97,24 +97,40 @@ class ChatStore extends ChangeNotifier {
       final m = Map<String, dynamic>.from(data);
       final messageId = m['messageId']?.toString();
       final status = m['status']?.toString();
+      final readBy = (m['readBy'] as List? ?? []).map((e) => e.toString()).toList();
       if (messageId == null || status == null) return;
 
       final idx = messages.indexWhere((x) => x.id == messageId);
       if (idx != -1) {
         final old = messages[idx];
-        messages[idx] = ChatMessage(
-          id: old.id,
-          conversationId: old.conversationId,
-          sender: old.sender,
-          content: old.content,
-          encryptedPayload: old.encryptedPayload,
-          type: old.type,
-          mediaUrl: old.mediaUrl,
+        messages[idx] = old.copyWith(
           status: status,
-          timestamp: old.timestamp,
+          readBy: readBy.isEmpty ? old.readBy : readBy,
         );
         notifyListeners();
       }
+    });
+
+    s.on('conversationRead', (data) {
+      final m = Map<String, dynamic>.from(data);
+      final conversationId = m['conversationId']?.toString();
+      final userId = m['userId']?.toString();
+      if (conversationId == null || userId == null) return;
+
+      if (conversationId == activeConversationId) {
+        messages = messages.map((message) {
+          if (message.senderId() == userId || message.readBy.contains(userId)) {
+            return message;
+          }
+          return message.copyWith(readBy: [...message.readBy, userId]);
+        }).toList();
+      }
+
+      if (userId == api.userId) {
+        _markConversationReadLocally(conversationId, notify: false);
+      }
+
+      notifyListeners();
     });
 
     s.on('conversationUpdated', (data) async {
@@ -249,7 +265,14 @@ class ChatStore extends ChangeNotifier {
     messages = await _decryptMessages(raw);
     oldestTimestamp = messages.isNotEmpty ? messages.first.timestamp.toIso8601String() : null;
     typingText = null;
+    _markConversationReadLocally(convId, notify: false);
     notifyListeners();
+
+    try {
+      await api.markConversationRead(convId);
+    } catch (e) {
+      debugPrint('Ошибка отметки сообщений прочитанными: $e');
+    }
   }
 
   Future<void> loadMore() async {
@@ -392,5 +415,16 @@ class ChatStore extends ChangeNotifier {
     }
     _sortConversations();
     notifyListeners();
+  }
+
+  void _markConversationReadLocally(String conversationId, {bool notify = true}) {
+    final index = conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+
+    conversations[index] = conversations[index].copyWith(unreadCount: 0);
+
+    if (notify) {
+      notifyListeners();
+    }
   }
 }

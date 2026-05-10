@@ -6,6 +6,7 @@ import 'package:mime/mime.dart';
 
 import '../app_config.dart';
 import '../models/conversation.dart';
+import '../models/gif_result.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import 'api_client.dart';
@@ -385,6 +386,26 @@ class ApiService {
       throw Exception('Delete message failed');
     }
     return ChatMessage.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<GifResult>> searchGifs(String query, {int limit = 18}) async {
+    final res = await _apiClient.get(
+      _u('/api/gifs/search', {
+        'q': query,
+        'limit': limit.toString(),
+      }),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    print('📡 [API] Search GIFs response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : null;
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('GIF search failed');
+    }
+
+    final arr = (data as Map<String, dynamic>)['results'] as List? ?? [];
+    return arr.map((e) => GifResult.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<void> postPublicKey(String publicKey) async {

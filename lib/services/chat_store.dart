@@ -377,6 +377,10 @@ class ChatStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> sendGif(String gifUrl) async {
+    await sendText('', type: 'gif', mediaUrl: gifUrl);
+  }
+
   Future<String?> _getPeerUserId() async {
     if (activeConversationId == null) return null;
     Conversation? conv = conversations.firstWhere(
@@ -416,6 +420,11 @@ class ChatStore extends ChangeNotifier {
   }
 
   Future<ChatMessage> _decryptIfNeeded(ChatMessage msg) async {
+    if (msg.isDeleted || msg.type != 'text') {
+      final decryptedReply = msg.replyTo == null ? null : await _decryptIfNeeded(msg.replyTo!);
+      return decryptedReply == null ? msg : msg.copyWith(replyTo: decryptedReply);
+    }
+
     final isMyMessage = msg.senderId() == api.userId;
     final payloadToDecrypt = isMyMessage ? msg.senderContent : msg.content;
 
@@ -427,7 +436,12 @@ class ChatStore extends ChangeNotifier {
 
     final decrypted = await encryption.decryptMessage(payloadToDecrypt);
     if (decrypted == null) {
-      return decryptedReply == null ? msg : msg.copyWith(replyTo: decryptedReply);
+      final fallbackContent = _looksEncryptedPayload(payloadToDecrypt) ? '🔒Зашифрованно' : null;
+      if (fallbackContent == null && decryptedReply == null) return msg;
+      return msg.copyWith(
+        content: fallbackContent ?? msg.content,
+        replyTo: decryptedReply,
+      );
     }
 
     return msg.copyWith(
@@ -435,6 +449,14 @@ class ChatStore extends ChangeNotifier {
       encryptedPayload: msg.encryptedPayload ?? payloadToDecrypt,
       replyTo: decryptedReply,
     );
+  }
+
+  bool _looksEncryptedPayload(String value) {
+    final trimmed = value.trim();
+    return trimmed.startsWith('{') &&
+        trimmed.contains('"alg"') &&
+        trimmed.contains('"ciphertext"') &&
+        trimmed.contains('"nonce"');
   }
 
   void _sortConversations() {

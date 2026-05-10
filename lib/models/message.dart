@@ -7,7 +7,7 @@ class ChatMessage {
   final String? content;
   final String? senderContent; // То что зашифровано для меня самого
   final String? encryptedPayload;
-  final String type; // text/image/voice/file/sticker
+  final String type; // text/image/gif/voice/file/sticker
   final String? mediaUrl;
   final String status; // sent/delivered/read
   final List<String> readBy;

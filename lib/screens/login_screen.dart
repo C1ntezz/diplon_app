@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../services/chat_store.dart';
+import '../services/encryption_service.dart';
 import 'chat_list_screen.dart';
 
 import 'package:workmanager/workmanager.dart';
@@ -32,6 +33,158 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// Показывает диалог выбора: импортировать ключи или создать новые
+  Future<bool?> _showKeyDecisionDialog(KeyStatus status) async {
+    final isCorrupted = status == KeyStatus.corrupted;
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(isCorrupted ? Icons.warning_amber_rounded : Icons.vpn_key, 
+                 color: isCorrupted ? Colors.orange : Theme.of(ctx).primaryColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                isCorrupted ? 'Ключи повреждены' : 'Ключи не найдены',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isCorrupted
+                ? 'Ключи шифрования повреждены (сброс безопасности устройства). '
+                    'Вы можете импортировать резервную копию или создать новые.'
+                : 'Для этого аккаунта не найдены ключи шифрования. '
+                    'Вы можете импортировать резервную копию или создать новую пару.',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.download),
+                label: const Text('Импортировать ключи'),
+                onPressed: () => Navigator.of(ctx).pop(false), // false = import
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Создать новые'),
+                onPressed: () => Navigator.of(ctx).pop(true), // true = create new
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '⚠️ При создании новых ключей старые сообщения будет невозможно расшифровать.',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Показывает диалог импорта ключей (вставка JSON)
+  Future<String?> _showImportDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Импорт ключей'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Вставьте резервную копию ключей (JSON):',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: '{"version":2,"userId":"...", ...}',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Импортировать'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _proceedAfterLogin() async {
+    // Регистрируем фоновую задачу (не поддерживается в Web)
+    if (!kIsWeb) {
+      Workmanager().registerPeriodicTask(
+        "diplom_messenger_sync_task",
+        "backgroundSync",
+        frequency: const Duration(minutes: 15),
+        constraints: Constraints(
+          networkType: NetworkType.connected,
+        ),
+      );
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const ChatListScreen()),
+    );
+  }
+
+  Future<void> _handleKeySetup(ApiService api, KeyStatus status) async {
+    final encryption = context.read<EncryptionService>();
+
+    while (true) {
+      final createNew = await _showKeyDecisionDialog(status);
+      if (createNew == null || !mounted) return; // dialog dismissed somehow
+
+      if (createNew) {
+        // Создать новые ключи
+        await encryption.generateKeys(api);
+        await _proceedAfterLogin();
+        return;
+      } else {
+        // Импортировать
+        final json = await _showImportDialog();
+        if (json == null || json.isEmpty || !mounted) continue; // back to decision
+
+        final success = await encryption.importKeys(json, api);
+        if (!mounted) return;
+
+        if (success) {
+          await _proceedAfterLogin();
+          return;
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Неверный формат ключей. Попробуйте ещё раз.')),
+          );
+          // Loop back to decision dialog
+        }
+      }
+    }
+  }
+
   void _submit() async {
     final api = context.read<ApiService>();
     
@@ -50,7 +203,6 @@ class _LoginScreenState extends State<LoginScreen> {
     
     try {
       if (!isLogin) {
-        // Регистрация
         await api.register(
           username, 
           password, 
@@ -58,10 +210,8 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      // После успешной регистрации сразу делаем логин, либо просто логинимся
       final data = await api.login(username, password);
       
-      // ИСПОЛЬЗУЕМ refreshToken
       await api.saveSession(
         token: data['accessToken']?.toString() ?? data['token'].toString(),
         refreshToken: data['refreshToken']?.toString() ?? '',
@@ -73,26 +223,18 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       context.read<SocketService>().connect(token: api.token!);
       
-      // Инициализация хранилища (здесь же происходит генерация ключей RSA-2048 через fast_rsa!)
-      await context.read<ChatStore>().init();
-
-      // Регистрируем фоновую задачу только после успешного входа.
-      // Workmanager не поддерживается в Flutter Web.
-      if (!kIsWeb) {
-        Workmanager().registerPeriodicTask(
-          "diplom_messenger_sync_task",
-          "backgroundSync",
-          frequency: const Duration(minutes: 15),
-          constraints: Constraints(
-            networkType: NetworkType.connected, // Только если есть интернет
-          ),
-        );
-      }
+      // Проверяем статус ключей (НЕ генерируем автоматически)
+      final keyStatus = await context.read<ChatStore>().init();
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ChatListScreen()),
-      );
+
+      if (keyStatus == KeyStatus.ready) {
+        // Ключи на месте — сразу в чаты
+        await _proceedAfterLogin();
+      } else {
+        // Ключей нет или они битые — показываем диалог
+        await _handleKeySetup(api, keyStatus);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -199,7 +341,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: loading ? null : () {
                     setState(() {
                       isLogin = !isLogin;
-                      // Очищаем поля при переключении
                       if (isLogin) d.clear();
                     });
                   },

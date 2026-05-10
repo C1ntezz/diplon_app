@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 
 import 'api_service.dart';
 
+enum KeyStatus { ready, missing, corrupted }
+
 class EncryptionService {
   final _aes = cryptography.AesGcm.with256bits();
   final _secureStorage = const FlutterSecureStorage();
@@ -18,16 +20,20 @@ class EncryptionService {
   static const _storagePrivateKey = 'rsa_private_key_v2';
   static const _storagePublicKey = 'rsa_public_key_v2';
 
-  Future<void> init(ApiService api) async {
+  bool get hasKeys => _publicKeySerialized != null && _privateKeySerialized != null;
+
+  /// Проверяет наличие ключей и загружает их. НЕ генерирует новые автоматически.
+  /// Возвращает [KeyStatus.ready], [KeyStatus.missing], или [KeyStatus.corrupted].
+  Future<KeyStatus> init(ApiService api) async {
     final userId = api.userId;
     if (userId == null) {
       if (kDebugMode) print('⚠️ [Encryption] init called but userId is NULL. Skipping.');
-      return;
+      return KeyStatus.missing;
     }
 
     if (_publicKeySerialized != null && _currentUserId == userId) {
       if (kDebugMode) print('🔐 [Encryption] Already initialized for user $userId');
-      return;
+      return KeyStatus.ready;
     }
 
     _currentUserId = userId;
@@ -35,9 +41,22 @@ class EncryptionService {
     final privKeyName = '${_storagePrivateKey}_$userId';
     final pubKeyName = '${_storagePublicKey}_$userId';
 
-    // Читаем из secure storage
-    final storedPriv = await _secureStorage.read(key: privKeyName);
-    final storedPub = await _secureStorage.read(key: pubKeyName);
+    // Читаем из secure storage (с обработкой сброса Keystore)
+    String? storedPriv;
+    String? storedPub;
+    bool corrupted = false;
+    try {
+      storedPriv = await _secureStorage.read(key: privKeyName);
+      storedPub = await _secureStorage.read(key: pubKeyName);
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Keystore corrupted, cannot read keys: $e');
+      corrupted = true;
+      // Чистим битые ключи
+      try {
+        await _secureStorage.delete(key: privKeyName);
+        await _secureStorage.delete(key: pubKeyName);
+      } catch (_) {}
+    }
 
     if (kDebugMode) print('🔐 [Encryption] Initializing for user: $userId');
     if (kDebugMode) print('🔐 [Encryption] Looking for keys: $privKeyName, $pubKeyName');
@@ -48,27 +67,48 @@ class EncryptionService {
       _privateKeySerialized = storedPriv;
       _publicKeySerialized = storedPub;
       if (kDebugMode) print('✅ [Encryption] Keys loaded from secure storage.');
-    } else {
-      if (kDebugMode) print('🔐 [Encryption] No stored keys (v2) for this user. Generating fast_rsa 2048 pair...');
-      
-      final keyPair = await RSA.generate(2048);
-      
-      _publicKeySerialized = keyPair.publicKey;
-      _privateKeySerialized = keyPair.privateKey;
-
-      if (kDebugMode) print('🔐 [Encryption] Keys generated instantly. Writing to secure storage for $userId...');
-      await _secureStorage.write(key: pubKeyName, value: _publicKeySerialized!);
-      await _secureStorage.write(key: privKeyName, value: _privateKeySerialized!);
-      if (kDebugMode) print('✅ [Encryption] Keys saved to secure storage.');
-    }
-
-    if (_publicKeySerialized != null) {
+      // Синхронизируем с сервером на всякий случай
       try {
-        if (kDebugMode) print('📡 [Encryption] Syncing public key with server...');
         await api.postPublicKey(_publicKeySerialized!);
       } catch (e) {
         if (kDebugMode) print('⚠️ [Encryption] Could not sync key with server: $e');
       }
+      return KeyStatus.ready;
+    }
+
+    return corrupted ? KeyStatus.corrupted : KeyStatus.missing;
+  }
+
+  /// Генерирует новую пару RSA-ключей и сохраняет в secure storage.
+  Future<void> generateKeys(ApiService api) async {
+    final userId = _currentUserId ?? api.userId;
+    if (userId == null) throw Exception('No userId for key generation');
+
+    if (kDebugMode) print('🔐 [Encryption] Generating fast_rsa 2048 pair...');
+
+    final keyPair = await RSA.generate(2048);
+
+    _publicKeySerialized = keyPair.publicKey;
+    _privateKeySerialized = keyPair.privateKey;
+
+    final privKeyName = '${_storagePrivateKey}_$userId';
+    final pubKeyName = '${_storagePublicKey}_$userId';
+
+    if (kDebugMode) print('🔐 [Encryption] Keys generated. Writing to secure storage for $userId...');
+    try {
+      await _secureStorage.write(key: pubKeyName, value: _publicKeySerialized!);
+      await _secureStorage.write(key: privKeyName, value: _privateKeySerialized!);
+      if (kDebugMode) print('✅ [Encryption] Keys saved to secure storage.');
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Failed to persist keys: $e');
+    }
+
+    // Синхронизируем публичный ключ с сервером
+    try {
+      if (kDebugMode) print('📡 [Encryption] Syncing public key with server...');
+      await api.postPublicKey(_publicKeySerialized!);
+    } catch (e) {
+      if (kDebugMode) print('⚠️ [Encryption] Could not sync key with server: $e');
     }
   }
 
@@ -145,7 +185,7 @@ class EncryptionService {
     if (_privateKeySerialized == null || _publicKeySerialized == null) {
       return null;
     }
-    
+
     final exportData = {
       'version': 2,
       'userId': _currentUserId,
@@ -153,7 +193,7 @@ class EncryptionService {
       'privateKey': _privateKeySerialized,
       'exportedAt': DateTime.now().toIso8601String(),
     };
-    
+
     return jsonEncode(exportData);
   }
 
@@ -162,40 +202,45 @@ class EncryptionService {
     try {
       final data = jsonDecode(jsonExport);
       if (data is! Map) return false;
-      
+
       final version = data['version'];
       if (version != 2) {
         if (kDebugMode) print('⚠️ [Encryption] Unsupported key version: $version');
         return false;
       }
-      
+
       final publicKey = data['publicKey']?.toString();
       final privateKey = data['privateKey']?.toString();
       final exportedUserId = data['userId']?.toString();
-      
+
       if (publicKey == null || privateKey == null) {
         if (kDebugMode) print('⚠️ [Encryption] Missing keys in export');
         return false;
       }
-      
-      // Проверяем, что ключи соответствуют текущему пользователю
-      final currentUserId = api.userId;
+
+      final currentUserId = api.userId ?? _currentUserId;
       if (exportedUserId != null && exportedUserId != currentUserId) {
         if (kDebugMode) print('⚠️ [Encryption] Key userId mismatch: $exportedUserId vs $currentUserId');
         return false;
       }
-      
-      // Сохраняем ключи
+
       _publicKeySerialized = publicKey;
       _privateKeySerialized = privateKey;
       _currentUserId = currentUserId;
-      
+
       final privKeyName = '${_storagePrivateKey}_$currentUserId';
       final pubKeyName = '${_storagePublicKey}_$currentUserId';
-      
+
       await _secureStorage.write(key: pubKeyName, value: publicKey);
       await _secureStorage.write(key: privKeyName, value: privateKey);
-      
+
+      // Синхронизируем с сервером
+      try {
+        await api.postPublicKey(publicKey);
+      } catch (e) {
+        if (kDebugMode) print('⚠️ [Encryption] Could not sync imported key: $e');
+      }
+
       if (kDebugMode) print('✅ [Encryption] Keys imported successfully');
       return true;
     } catch (e) {

@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "flutter": "^0.0.5"
+  },
+  "scripts": {
+    "build_apk": "flutter clean && flutter pub get && flutter build apk --release"
   }
 }

@@ -21,11 +21,28 @@ class ApiService {
   String? displayName;
 
   Future<void> loadSession() async {
-    token = await _storage.read(key: 'accessToken') ?? await _storage.read(key: 'jwt_token');
-    refreshToken = await _storage.read(key: 'refreshToken');
-    userId = await _storage.read(key: 'userId');
-    username = await _storage.read(key: 'username');
-    displayName = await _storage.read(key: 'displayName');
+    try {
+      token = await _storage.read(key: 'accessToken') ?? await _storage.read(key: 'jwt_token');
+      refreshToken = await _storage.read(key: 'refreshToken');
+      userId = await _storage.read(key: 'userId');
+      username = await _storage.read(key: 'username');
+      displayName = await _storage.read(key: 'displayName');
+    } catch (e) {
+      print('⚠️ [loadSession] Keystore corrupted or reset, clearing storage: $e');
+      token = null;
+      refreshToken = null;
+      userId = null;
+      username = null;
+      displayName = null;
+      try {
+        await _storage.delete(key: 'accessToken');
+        await _storage.delete(key: 'jwt_token');
+        await _storage.delete(key: 'refreshToken');
+        await _storage.delete(key: 'userId');
+        await _storage.delete(key: 'username');
+        await _storage.delete(key: 'displayName');
+      } catch (_) {}
+    }
   }
 
   Future<void> saveSession({

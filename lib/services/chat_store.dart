@@ -33,11 +33,12 @@ class ChatStore extends ChangeNotifier {
 
   Timer? _typingHideTimer;
 
-  Future<void> init() async {
-    await encryption.init(api);
+  Future<KeyStatus> init() async {
+    final keyStatus = await encryption.init(api);
     onlineUsers = (await api.getOnlineUsers()).toSet();
     await loadConversations();
     _bindSocket();
+    return keyStatus;
   }
 
   void _bindSocket() {

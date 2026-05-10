@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'services/api_service.dart';
@@ -13,8 +13,6 @@ import 'package:workmanager/workmanager.dart';
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
-    // В будущем здесь мы реализуем проверку новых сообщений по HTTP,
-    // но пока просто возвращаем true (заглушка)
     print("⏳ [WorkManager] Выполнение фоновой задачи: $task");
     return Future.value(true);
   });
@@ -23,14 +21,20 @@ void callbackDispatcher() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Инициализация уведомлений
-  await NotificationService().init();
+  try {
+    await NotificationService().init();
+  } catch (e, st) {
+    print('❌ [Boot] NotificationService init failed: $e\n$st');
+  }
   
-  // Инициализация Workmanager для фоновых задач
-  Workmanager().initialize(
-    callbackDispatcher, 
-    isInDebugMode: false // Включи true для логов при разработке
-  );
+  try {
+    Workmanager().initialize(
+      callbackDispatcher, 
+      isInDebugMode: false
+    );
+  } catch (e, st) {
+    print('❌ [Boot] Workmanager init failed: $e\n$st');
+  }
 
   runApp(const App());
 }
@@ -71,6 +75,7 @@ class Boot extends StatefulWidget {
 
 class _BootState extends State<Boot> {
   bool ready = false;
+  String? error;
 
   @override
   void initState() {
@@ -79,13 +84,22 @@ class _BootState extends State<Boot> {
   }
 
   Future<void> _init() async {
-    final api = context.read<ApiService>();
-    await api.loadSession();
+    try {
+      final api = context.read<ApiService>();
+      print('🔍 [Boot] Loading session...');
+      await api.loadSession();
+      print('🔍 [Boot] Session loaded, token: ${api.token != null ? "present" : "null"}');
 
-    if (api.token != null) {
-      final socket = context.read<SocketService>();
-      socket.connect(token: api.token!);
-      await context.read<ChatStore>().init();
+      if (api.token != null) {
+        final socket = context.read<SocketService>();
+        print('🔍 [Boot] Connecting socket...');
+        socket.connect(token: api.token!);
+        await context.read<ChatStore>().init();
+        print('🔍 [Boot] ChatStore initialized');
+      }
+    } catch (e, st) {
+      print('❌ [Boot] Init error: $e\n$st');
+      error = e.toString().length > 200 ? 'Ключи безопасности утеряны (переустановка приложения?).\nВойдите заново.' : e.toString();
     }
 
     setState(() => ready = true);
@@ -96,6 +110,33 @@ class _BootState extends State<Boot> {
     final api = context.watch<ApiService>();
     if (!ready) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (error != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text('Ошибка инициализации', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() { error = null; ready = false; });
+                    _init();
+                  },
+                  child: const Text('Повторить'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
     return api.token == null ? const LoginScreen() : const ChatListScreen();
   }

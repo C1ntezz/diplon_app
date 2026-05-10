@@ -13,6 +13,6 @@
 
   String get title {
     final dn = (displayName ?? '').trim();
-    return dn.isNotEmpty ? dn : '@';
+    return dn.isNotEmpty ? dn : username;
   }
 }

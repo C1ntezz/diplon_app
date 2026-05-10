@@ -33,6 +33,16 @@ class ChatStore extends ChangeNotifier {
 
   Timer? _typingHideTimer;
 
+  Conversation? get activeConversation {
+    final convId = activeConversationId;
+    if (convId == null) return null;
+    try {
+      return conversations.firstWhere((c) => c.id == convId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> init() async {
     await encryption.init(api);
     onlineUsers = (await api.getOnlineUsers()).toSet();
@@ -106,6 +116,29 @@ class ChatStore extends ChangeNotifier {
       }
     });
 
+    s.on('conversationUpdated', (data) async {
+      final updated = Conversation.fromJson(Map<String, dynamic>.from(data));
+      final index = conversations.indexWhere((c) => c.id == updated.id);
+      if (index == -1) {
+        conversations.add(updated);
+      } else {
+        conversations[index] = updated;
+      }
+      _sortConversations();
+      notifyListeners();
+    });
+
+    s.on('conversationRemoved', (conversationId) {
+      final removedId = conversationId.toString();
+      conversations.removeWhere((c) => c.id == removedId);
+      if (activeConversationId == removedId) {
+        activeConversationId = null;
+        messages = [];
+        oldestTimestamp = null;
+      }
+      notifyListeners();
+    });
+
     s.on('typing', (data) {
       final m = Map<String, dynamic>.from(data);
       final convId = m['conversationId']?.toString();
@@ -135,6 +168,62 @@ class ChatStore extends ChangeNotifier {
     }
     
     _sortConversations();
+    notifyListeners();
+  }
+
+  Future<Conversation> createGroup({
+    required String name,
+    required List<String> participantIds,
+  }) async {
+    final group = await api.createGroupConversation(
+      name: name,
+      participantIds: participantIds,
+    );
+    await loadConversations();
+    return group;
+  }
+
+  Future<void> renameGroup(String conversationId, String name) async {
+    final updated = await api.updateGroupName(
+      conversationId: conversationId,
+      name: name,
+    );
+    _replaceConversation(updated);
+  }
+
+  Future<void> updateGroupMemberRole(String conversationId, String userId, String role) async {
+    final updated = await api.updateGroupMemberRole(
+      conversationId: conversationId,
+      targetUserId: userId,
+      role: role,
+    );
+    _replaceConversation(updated);
+  }
+
+  Future<void> addGroupMember(String conversationId, String userId) async {
+    final updated = await api.addGroupMember(
+      conversationId: conversationId,
+      userId: userId,
+    );
+    _replaceConversation(updated);
+  }
+
+  Future<void> removeGroupMember(String conversationId, String userId) async {
+    final updated = await api.removeGroupMember(
+      conversationId: conversationId,
+      userId: userId,
+    );
+    _replaceConversation(updated);
+  }
+
+  Future<void> leaveGroup(String conversationId) async {
+    await api.leaveGroup(conversationId: conversationId);
+    conversations.removeWhere((c) => c.id == conversationId);
+    if (activeConversationId == conversationId) {
+      activeConversationId = null;
+      messages = [];
+      oldestTimestamp = null;
+    }
     notifyListeners();
   }
 
@@ -291,5 +380,16 @@ class ChatStore extends ChangeNotifier {
       final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);
     });
+  }
+
+  void _replaceConversation(Conversation updated) {
+    final index = conversations.indexWhere((c) => c.id == updated.id);
+    if (index == -1) {
+      conversations.add(updated);
+    } else {
+      conversations[index] = updated;
+    }
+    _sortConversations();
+    notifyListeners();
   }
 }

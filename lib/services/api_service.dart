@@ -209,6 +209,124 @@ class ApiService {
     return Conversation.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<Conversation> createGroupConversation({
+    required String name,
+    required List<String> participantIds,
+  }) async {
+    final res = await _apiClient.post(
+      _u('/api/conversations'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'type': 'group',
+        'name': name,
+        'participantIds': participantIds,
+      }),
+    );
+
+    print('📡 [API] Create group response: ${res.statusCode}');
+    final data = jsonDecode(res.body);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Create group failed');
+    }
+    return Conversation.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Conversation> updateGroupName({
+    required String conversationId,
+    required String name,
+  }) async {
+    final res = await _apiClient.put(
+      _u('/api/conversations/$conversationId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name}),
+    );
+
+    print('📡 [API] Rename group response: ${res.statusCode}');
+    final data = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Rename group failed');
+    }
+    return Conversation.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Conversation> updateGroupMemberRole({
+    required String conversationId,
+    required String targetUserId,
+    required String role,
+  }) async {
+    final res = await _apiClient.put(
+      _u('/api/conversations/$conversationId/roles'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'userId': targetUserId,
+        'role': role,
+      }),
+    );
+
+    print('📡 [API] Change group role response: ${res.statusCode}');
+    final data = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Change group role failed');
+    }
+    return Conversation.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Conversation> addGroupMember({
+    required String conversationId,
+    required String userId,
+  }) async {
+    final res = await _apiClient.post(
+      _u('/api/conversations/$conversationId/participants'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'userId': userId}),
+    );
+
+    print('📡 [API] Add group member response: ${res.statusCode}');
+    final data = jsonDecode(res.body);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Add group member failed');
+    }
+    return Conversation.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Conversation> removeGroupMember({
+    required String conversationId,
+    required String userId,
+  }) async {
+    final res = await _apiClient.delete(
+      _u('/api/conversations/$conversationId/participants/$userId'),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    print('📡 [API] Remove group member response: ${res.statusCode}');
+    final data = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Remove group member failed');
+    }
+    return Conversation.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> leaveGroup({
+    required String conversationId,
+  }) async {
+    final res = await _apiClient.delete(
+      _u('/api/conversations/$conversationId/leave'),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    print('📡 [API] Leave group response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : null;
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Leave group failed');
+    }
+  }
+
   Future<List<ChatMessage>> getMessages(String convId, {int limit = 50, String? before}) async {
     final q = <String, String>{'limit': limit.toString()};
     if (before != null) {

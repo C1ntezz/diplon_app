@@ -239,6 +239,149 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
+  Future<void> _showCreateGroupDialog() async {
+    final nameController = TextEditingController();
+    final selectedIds = <String>{};
+    var users = <AppUser>[];
+    var loading = true;
+    var requestedUsers = false;
+    String? error;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> loadUsers() async {
+            try {
+              final loaded = await context.read<ApiService>().getUsers();
+              if (!dialogContext.mounted) return;
+              setDialogState(() {
+                users = loaded;
+                loading = false;
+              });
+            } catch (e) {
+              if (!dialogContext.mounted) return;
+              setDialogState(() {
+                error = e.toString();
+                loading = false;
+              });
+            }
+          }
+
+          if (!requestedUsers && loading && users.isEmpty && error == null) {
+            requestedUsers = true;
+            Future.microtask(loadUsers);
+          }
+
+          return AlertDialog(
+            title: const Text('Создать группу'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Название группы',
+                      prefixIcon: Icon(Icons.groups_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (loading)
+                    const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: CircularProgressIndicator(),
+                    )
+                  else if (error != null)
+                    Text(error!, style: const TextStyle(color: Colors.red))
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: users.length,
+                        itemBuilder: (_, index) {
+                          final user = users[index];
+                          final selected = selectedIds.contains(user.id);
+                          return CheckboxListTile(
+                            value: selected,
+                            onChanged: (value) {
+                              setDialogState(() {
+                                if (value == true) {
+                                  selectedIds.add(user.id);
+                                } else {
+                                  selectedIds.remove(user.id);
+                                }
+                              });
+                            },
+                            secondary: CircleAvatar(
+                              child: Text(user.title.isNotEmpty ? user.title[0].toUpperCase() : '?'),
+                            ),
+                            title: Text(user.title),
+                            subtitle: Text('@${user.username}'),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Отмена'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.group_add),
+                label: const Text('Создать'),
+                onPressed: loading
+                    ? null
+                    : () async {
+                        final name = nameController.text.trim();
+                        if (name.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Введите название группы')),
+                          );
+                          return;
+                        }
+                        if (selectedIds.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Выберите хотя бы одного участника')),
+                          );
+                          return;
+                        }
+
+                        try {
+                          final group = await context.read<ChatStore>().createGroup(
+                                name: name,
+                                participantIds: selectedIds.toList(),
+                              );
+                          if (!dialogContext.mounted) return;
+                          Navigator.of(dialogContext).pop();
+                          await context.read<ChatStore>().openConversation(group.id);
+                          if (!mounted) return;
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ChatScreen(title: group.name ?? 'Группа'),
+                            ),
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Ошибка создания группы: $e')),
+                          );
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<ChatStore>();
@@ -279,6 +422,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   case 'import_keys':
                     await _showImportKeysDialog(context);
                     break;
+                  case 'create_group':
+                    await _showCreateGroupDialog();
+                    break;
                   case 'settings':
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -310,6 +456,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   ),
                 ),
                 const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'create_group',
+                  child: Row(
+                    children: [
+                      Icon(Icons.group_add, size: 20),
+                      SizedBox(width: 8),
+                      Text('Создать группу'),
+                    ],
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'settings',
                   child: Row(

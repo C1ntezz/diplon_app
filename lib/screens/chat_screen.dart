@@ -2,6 +2,7 @@
 import 'package:provider/provider.dart';
 import '../services/chat_store.dart';
 import '../services/api_service.dart';
+import 'group_settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String title;
@@ -36,6 +37,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<ChatStore>();
     final api = context.read<ApiService>();
+    final activeConversation = store.activeConversation;
+    final title = activeConversation?.type == 'group'
+        ? (activeConversation?.name ?? widget.title)
+        : widget.title;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (scroll.hasClients) {
@@ -48,11 +53,25 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.title),
+            Text(title),
             if (store.typingText != null)
               Text(store.typingText!, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
           ],
         ),
+        actions: [
+          if (activeConversation?.type == 'group')
+            IconButton(
+              icon: const Icon(Icons.group_outlined),
+              tooltip: 'Настройки группы',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => GroupSettingsScreen(conversationId: activeConversation!.id),
+                  ),
+                );
+              },
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -69,6 +88,24 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 }
                 final msg = store.messages[store.loadingMore ? i - 1 : i];
+                if (msg.type == 'system') {
+                  return Center(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Text(
+                        msg.content ?? '',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      ),
+                    ),
+                  );
+                }
+
                 final isOwn = msg.senderId() == api.userId;
 
                 final bubbleColor = isOwn ? Colors.blue : const Color(0xFFE9ECEF);

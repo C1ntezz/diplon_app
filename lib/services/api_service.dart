@@ -372,6 +372,21 @@ class ApiService {
     return msgs;
   }
 
+  Future<ChatMessage> deleteMessage(String messageId) async {
+    final res = await _apiClient.delete(
+      _u('/api/messages/$messageId'),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    print('📡 [API] Delete message response: ${res.statusCode}');
+    final data = res.body.isNotEmpty ? jsonDecode(res.body) : null;
+    if (res.statusCode != 200) {
+      if (data is Map && data['error'] != null) throw Exception(data['error']);
+      throw Exception('Delete message failed');
+    }
+    return ChatMessage.fromJson(data as Map<String, dynamic>);
+  }
+
   Future<void> postPublicKey(String publicKey) async {
     final res = await _apiClient.post(
       _u('/api/keys'),

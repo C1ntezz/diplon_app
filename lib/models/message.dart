@@ -11,6 +11,9 @@ class ChatMessage {
   final String? mediaUrl;
   final String status; // sent/delivered/read
   final List<String> readBy;
+  final ChatMessage? replyTo;
+  final DateTime? deletedAt;
+  final String? deletedBy;
   final DateTime timestamp;
 
   ChatMessage({
@@ -24,6 +27,9 @@ class ChatMessage {
     required this.mediaUrl,
     required this.status,
     this.readBy = const [],
+    this.replyTo,
+    this.deletedAt,
+    this.deletedBy,
     required this.timestamp,
   });
 
@@ -38,6 +44,11 @@ class ChatMessage {
         mediaUrl: j['mediaUrl']?.toString(),
         status: (j['status'] ?? 'sent').toString(),
         readBy: (j['readBy'] as List? ?? []).map(_userIdFromJson).toList(),
+        replyTo: j['replyTo'] is Map<String, dynamic>
+            ? ChatMessage.fromJson(j['replyTo'] as Map<String, dynamic>)
+            : null,
+        deletedAt: j['deletedAt'] != null ? DateTime.tryParse(j['deletedAt'].toString()) : null,
+        deletedBy: _userIdFromJson(j['deletedBy']),
         timestamp: DateTime.tryParse((j['timestamp'] ?? '').toString()) ?? DateTime.now(),
       );
 
@@ -56,12 +67,17 @@ class ChatMessage {
     return (sender ?? '').toString();
   }
 
+  bool get isDeleted => deletedAt != null;
+
   ChatMessage copyWith({
     String? content,
     String? senderContent,
     String? encryptedPayload,
     String? status,
     List<String>? readBy,
+    ChatMessage? replyTo,
+    DateTime? deletedAt,
+    String? deletedBy,
   }) {
     return ChatMessage(
       id: id,
@@ -74,6 +90,9 @@ class ChatMessage {
       mediaUrl: mediaUrl,
       status: status ?? this.status,
       readBy: readBy ?? this.readBy,
+      replyTo: replyTo ?? this.replyTo,
+      deletedAt: deletedAt ?? this.deletedAt,
+      deletedBy: deletedBy ?? this.deletedBy,
       timestamp: timestamp,
     );
   }

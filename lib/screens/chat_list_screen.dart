@@ -594,7 +594,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ],
             ),
             subtitle: Text(
-              c.lastMessage?.content ?? (c.lastMessage?.type == 'image' ? '📷 Изображение' : 'Нет сообщений'),
+              c.lastMessage?.isDeleted == true
+                  ? 'Сообщение удалено'
+                  : ((c.lastMessage?.content?.isNotEmpty == true)
+                      ? c.lastMessage!.content!
+                      : (c.lastMessage?.type == 'image' ? '📷 Изображение' : 'Нет сообщений')),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

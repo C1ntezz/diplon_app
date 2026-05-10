@@ -6,6 +6,7 @@ import 'services/api_service.dart';
 import 'services/socket_service.dart';
 import 'services/chat_store.dart';
 import 'services/encryption_service.dart';
+import 'services/theme_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'services/notification_service.dart';
@@ -53,6 +54,7 @@ class App extends StatelessWidget {
         Provider(create: (_) => ApiService()),
         Provider(create: (_) => SocketService()),
         Provider(create: (_) => EncryptionService()),
+        ChangeNotifierProvider(create: (_) => ThemeService()..load()),
         ChangeNotifierProxyProvider3<ApiService, SocketService, EncryptionService, ChatStore>(
           create: (context) => ChatStore(
             api: context.read<ApiService>(),
@@ -62,9 +64,23 @@ class App extends StatelessWidget {
           update: (_, api, socket, encryption, chatStore) => chatStore!,
         ),
       ],
-      child: const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Boot(),
+      child: Consumer<ThemeService>(
+        builder: (context, themeService, _) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          themeMode: themeService.themeMode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.blue,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          home: const Boot(),
+        ),
       ),
     );
   }

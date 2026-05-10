@@ -27,6 +27,7 @@ class ChatStore extends ChangeNotifier {
   Set<String> pinnedConversationIds = {};
   String? activeConversationId;
   String? typingText;
+  ChatMessage? replyingTo;
 
   String? oldestTimestamp;
   bool loadingMore = false;
@@ -111,6 +112,18 @@ class ChatStore extends ChangeNotifier {
       }
     });
 
+    s.on('messageDeleted', (data) async {
+      final deleted = await _decryptIfNeeded(
+        ChatMessage.fromJson(Map<String, dynamic>.from(data)),
+      );
+      _replaceMessage(deleted);
+      _replaceLastMessage(deleted);
+      if (replyingTo?.id == deleted.id) {
+        replyingTo = null;
+      }
+      notifyListeners();
+    });
+
     s.on('conversationRead', (data) {
       final m = Map<String, dynamic>.from(data);
       final conversationId = m['conversationId']?.toString();
@@ -152,6 +165,7 @@ class ChatStore extends ChangeNotifier {
         activeConversationId = null;
         messages = [];
         oldestTimestamp = null;
+        replyingTo = null;
       }
       notifyListeners();
     });
@@ -240,6 +254,7 @@ class ChatStore extends ChangeNotifier {
       activeConversationId = null;
       messages = [];
       oldestTimestamp = null;
+      replyingTo = null;
     }
     notifyListeners();
   }
@@ -265,6 +280,7 @@ class ChatStore extends ChangeNotifier {
     messages = await _decryptMessages(raw);
     oldestTimestamp = messages.isNotEmpty ? messages.first.timestamp.toIso8601String() : null;
     typingText = null;
+    replyingTo = null;
     _markConversationReadLocally(convId, notify: false);
     notifyListeners();
 
@@ -301,6 +317,27 @@ class ChatStore extends ChangeNotifier {
     socketService.socket.emit('typing', {'conversationId': activeConversationId});
   }
 
+  void startReply(ChatMessage message) {
+    if (message.isDeleted || message.type == 'system') return;
+    replyingTo = message;
+    notifyListeners();
+  }
+
+  void cancelReply() {
+    replyingTo = null;
+    notifyListeners();
+  }
+
+  Future<void> deleteMessage(ChatMessage message) async {
+    final deleted = await api.deleteMessage(message.id);
+    _replaceMessage(await _decryptIfNeeded(deleted));
+    _replaceLastMessage(deleted);
+    if (replyingTo?.id == message.id) {
+      replyingTo = null;
+    }
+    notifyListeners();
+  }
+
   Future<void> sendText(String text, {String type = 'text', String? mediaUrl}) async {
     if (activeConversationId == null) return;
 
@@ -334,7 +371,10 @@ class ChatStore extends ChangeNotifier {
       'senderContent': senderPayload,
       'type': type,
       'mediaUrl': mediaUrl,
+      'replyTo': replyingTo?.id,
     });
+    replyingTo = null;
+    notifyListeners();
   }
 
   Future<String?> _getPeerUserId() async {
@@ -379,14 +419,21 @@ class ChatStore extends ChangeNotifier {
     final isMyMessage = msg.senderId() == api.userId;
     final payloadToDecrypt = isMyMessage ? msg.senderContent : msg.content;
 
-    if (payloadToDecrypt == null || payloadToDecrypt.isEmpty) return msg;
+    final decryptedReply = msg.replyTo == null ? null : await _decryptIfNeeded(msg.replyTo!);
+
+    if (payloadToDecrypt == null || payloadToDecrypt.isEmpty) {
+      return decryptedReply == null ? msg : msg.copyWith(replyTo: decryptedReply);
+    }
 
     final decrypted = await encryption.decryptMessage(payloadToDecrypt);
-    if (decrypted == null) return msg;
+    if (decrypted == null) {
+      return decryptedReply == null ? msg : msg.copyWith(replyTo: decryptedReply);
+    }
 
     return msg.copyWith(
       content: decrypted,
       encryptedPayload: msg.encryptedPayload ?? payloadToDecrypt,
+      replyTo: decryptedReply,
     );
   }
 
@@ -415,6 +462,18 @@ class ChatStore extends ChangeNotifier {
     }
     _sortConversations();
     notifyListeners();
+  }
+
+  void _replaceMessage(ChatMessage updated) {
+    final index = messages.indexWhere((m) => m.id == updated.id);
+    if (index == -1) return;
+    messages[index] = updated;
+  }
+
+  void _replaceLastMessage(ChatMessage updated) {
+    final index = conversations.indexWhere((c) => c.lastMessage?.id == updated.id);
+    if (index == -1) return;
+    conversations[index] = conversations[index].copyWith(lastMessage: updated);
   }
 
   void _markConversationReadLocally(String conversationId, {bool notify = true}) {

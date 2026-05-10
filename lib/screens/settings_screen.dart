@@ -2,6 +2,7 @@
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../services/theme_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -340,11 +341,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final api = context.read<ApiService>();
+    final themeService = context.watch<ThemeService>();
     final displayName = (api.displayName ?? api.username ?? 'Пользователь').trim();
     final username = (api.username ?? '').trim();
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F9),
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         centerTitle: true,
         title: const Text(
@@ -358,7 +361,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(22),
               boxShadow: [
                 BoxShadow(
@@ -470,6 +473,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _changingPassword ? null : _showChangePasswordDialog,
               ),
               const Divider(height: 1),
+              SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                secondary: Icon(
+                  themeService.isDarkMode ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+                  color: Colors.blueGrey,
+                ),
+                title: const Text(
+                  'Темная тема',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                value: themeService.isDarkMode,
+                onChanged: themeService.setDarkMode,
+              ),
+              const Divider(height: 1),
               _ActionTile(
                 icon: Icons.notifications_none,
                 title: 'Уведомления',
@@ -497,7 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSectionCard({required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(

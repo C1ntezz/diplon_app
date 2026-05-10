@@ -8,6 +8,7 @@ import '../services/encryption_service.dart';
 import 'chat_list_screen.dart';
 
 import 'package:workmanager/workmanager.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -136,6 +137,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _requestBatteryOptimization() async {
+    if (!kIsWeb && !await Permission.ignoreBatteryOptimizations.isGranted) {
+      await Permission.ignoreBatteryOptimizations.request();
+    }
+  }
+
   Future<void> _proceedAfterLogin() async {
     // Регистрируем фоновую задачу (не поддерживается в Web)
     if (!kIsWeb) {
@@ -147,6 +154,13 @@ class _LoginScreenState extends State<LoginScreen> {
           networkType: NetworkType.connected,
         ),
       );
+
+      // Запрашиваем отключение оптимизации батареи (чтобы socket не убивали в фоне)
+      try {
+        await _requestBatteryOptimization();
+      } catch (e) {
+        print('⚠️ [Login] Battery optimization request failed: $e');
+      }
     }
 
     if (!mounted) return;

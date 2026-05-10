@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/conversation.dart';
@@ -33,6 +34,7 @@ class ChatStore extends ChangeNotifier {
   bool loadingMore = false;
 
   Timer? _typingHideTimer;
+  bool _appInBackground = false;
 
   Conversation? get activeConversation {
     final convId = activeConversationId;
@@ -49,6 +51,13 @@ class ChatStore extends ChangeNotifier {
     onlineUsers = (await api.getOnlineUsers()).toSet();
     await loadConversations();
     _bindSocket();
+
+    // Отслеживаем фон: показываем уведомления даже для активного чата
+    AppLifecycleListener(
+      onPause: () => _appInBackground = true,
+      onResume: () => _appInBackground = false,
+    );
+
     return keyStatus;
   }
 
@@ -59,23 +68,26 @@ class ChatStore extends ChangeNotifier {
       var msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
       msg = await _decryptIfNeeded(msg);
       
-      if (msg.conversationId == activeConversationId) {
-        // Мы сейчас внутри этого чата, просто добавляем сообщение
+      final isMyMessage = msg.senderId() == api.userId;
+      final isActiveChat = msg.conversationId == activeConversationId;
+
+      if (isActiveChat && !_appInBackground) {
+        // Активный чат на переднем плане — просто добавляем в ленту
         messages.add(msg);
         messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         notifyListeners();
 
-        if (msg.senderId() != api.userId) {
+        if (!isMyMessage) {
           if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
           if (!msg.readBy.contains(api.userId)) s.emit('messageRead', msg.id);
         }
       } else {
-        // Сообщение из ДРУГОГО чата. Показываем локальный Push!
-        if (msg.senderId() != api.userId) {
+        // Приложение свёрнуто ИЛИ другой чат — показываем уведомление
+        if (!isMyMessage) {
           final senderName = msg.senderAsUser()?.title ?? 'Новое сообщение';
           final text = msg.content ?? (msg.type == 'image' ? '📷 Изображение' : 'Файл');
           await NotificationService().showNewMessageNotification(senderName, text);
-          
+
           if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
         }
       }

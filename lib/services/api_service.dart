@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -84,6 +85,8 @@ class ApiService {
     await _storage.delete(key: 'userId');
     await _storage.delete(key: 'username');
     await _storage.delete(key: 'displayName');
+
+
   }
 
   Future<void> updateProfile({

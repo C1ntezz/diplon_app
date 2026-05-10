@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -27,6 +28,27 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _checkWorkManagerStatus();
+  }
+
+  Future<void> _checkWorkManagerStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastRun = prefs.getString('wm_last_run');
+      if (lastRun != null) {
+        final lastTime = DateTime.tryParse(lastRun);
+        if (lastTime != null) {
+          final diff = DateTime.now().difference(lastTime);
+          if (diff.inMinutes < 30) {
+            print('✅ [WM Diag] WorkManager жив! Последний запуск: ${diff.inMinutes} мин назад');
+          } else {
+            print('⚠️ [WM Diag] WorkManager был ${diff.inMinutes} мин назад (больше 30)');
+          }
+        }
+      } else {
+        print('❌ [WM Diag] WorkManager НЕ запускался ни разу!');
+      }
+    } catch (_) {}
   }
 
   @override

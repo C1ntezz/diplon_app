@@ -16,6 +16,20 @@ class NotificationService {
     const initSettings = InitializationSettings(android: androidSettings);
     
     await _notifications.initialize(initSettings);
+
+    // Создаём канал для foreground service (flutter_background_service)
+    final androidPlugin = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'diplom_messenger_bg',
+          'Фоновый сервис',
+          description: 'Уведомление о работе фонового сервиса',
+          importance: Importance.min, // Низкий приоритет чтобы не раздражать
+        ),
+      );
+    }
     
     // Запрашиваем права на отправку уведомлений (Android 13+)
     await Permission.notification.request();
@@ -30,6 +44,7 @@ class NotificationService {
       channelDescription: 'Уведомления о новых сообщениях',
       importance: Importance.max,
       priority: Priority.high,
+      autoCancel: true,
       ticker: 'Новое сообщение',
     );
     

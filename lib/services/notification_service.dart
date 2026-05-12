@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -17,7 +17,8 @@ class NotificationService {
     
     await _notifications.initialize(initSettings);
 
-    // Создаём канал для foreground service (flutter_background_service)
+    // Создаём канал для фонового сервиса (foreground service notification)
+    // Importance.low — без звука, без иконки в статус-баре, свёрнуто в шторке
     final androidPlugin = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (androidPlugin != null) {
@@ -26,7 +27,7 @@ class NotificationService {
           'diplom_messenger_bg',
           'Фоновый сервис',
           description: 'Уведомление о работе фонового сервиса',
-          importance: Importance.min, // Низкий приоритет чтобы не раздражать
+          importance: Importance.low,
         ),
       );
     }
@@ -35,6 +36,8 @@ class NotificationService {
     await Permission.notification.request();
   }
 
+  /// Показывает уведомление о новом сообщении (используется foreground-частью приложения
+  /// когда приложение на переднем плане, но пользователь не в нужном чате)
   Future<void> showNewMessageNotification(String senderName, String message) async {
     if (kIsWeb) return;
 

@@ -1,7 +1,8 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/conversation.dart';
 import '../models/message.dart';
@@ -9,7 +10,10 @@ import '../models/user.dart';
 import 'api_service.dart';
 import 'encryption_service.dart';
 import 'socket_service.dart';
-import 'notification_service.dart';
+
+/// SharedPreferences keys for inter-isolate communication
+const _kAppForeground = 'app_foreground';
+const _kActiveConvId = 'active_conv_id';
 
 class ChatStore extends ChangeNotifier {
   final ApiService api;
@@ -34,7 +38,6 @@ class ChatStore extends ChangeNotifier {
   bool loadingMore = false;
 
   Timer? _typingHideTimer;
-  bool _appInBackground = false;
 
   Conversation? get activeConversation {
     final convId = activeConversationId;
@@ -52,13 +55,39 @@ class ChatStore extends ChangeNotifier {
     await loadConversations();
     _bindSocket();
 
-    // Отслеживаем фон: показываем уведомления даже для активного чата
+    // Отслеживаем фон и активный чат (для избежания дублей с background service)
     AppLifecycleListener(
-      onPause: () => _appInBackground = true,
-      onResume: () => _appInBackground = false,
+      onPause: () {
+        
+        _writeFgState(false);
+      },
+      onResume: () {
+        
+        _writeFgState(true);
+      },
     );
+    // Начальное состояние — foreground
+    _writeFgState(true);
 
     return keyStatus;
+  }
+
+  void _writeFgState(bool foreground) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kAppForeground, foreground ? 'true' : 'false');
+    } catch (_) {}
+  }
+
+  void _writeActiveConv(String? convId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (convId != null && convId.isNotEmpty) {
+        await prefs.setString(_kActiveConvId, convId);
+      } else {
+        await prefs.remove(_kActiveConvId);
+      }
+    } catch (_) {}
   }
 
   void _bindSocket() {
@@ -69,31 +98,24 @@ class ChatStore extends ChangeNotifier {
       msg = await _decryptIfNeeded(msg);
       
       final isMyMessage = msg.senderId() == api.userId;
-      final isActiveChat = msg.conversationId == activeConversationId;
 
-      if (isActiveChat && !_appInBackground) {
-        // Активный чат на переднем плане — просто добавляем в ленту
+      // Всегда добавляем в ленту если в нужном чате
+      if (msg.conversationId == activeConversationId) {
         messages.add(msg);
         messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         notifyListeners();
+      }
 
-        if (!isMyMessage) {
-          if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
-          if (!msg.readBy.contains(api.userId)) s.emit('messageRead', msg.id);
-        }
-      } else {
-        // Приложение свёрнуто ИЛИ другой чат — показываем уведомление
-        if (!isMyMessage) {
-          final senderName = msg.senderAsUser()?.title ?? 'Новое сообщение';
-          final text = msg.content ?? (msg.type == 'image' ? '📷 Изображение' : 'Файл');
-          await NotificationService().showNewMessageNotification(senderName, text);
-
-          if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
-        }
+      if (!isMyMessage) {
+        if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
+        if (!msg.readBy.contains(api.userId)) s.emit('messageRead', msg.id);
       }
       
       // Обновляем список чатов (чтобы обновилось последнее сообщение и сортировка)
       loadConversations();
+
+      // Уведомления теперь ТОЛЬКО через background service
+      // (ChatStore не показывает уведомления — избегаем дублей)
     });
 
     s.on('userOnline', (uid) {
@@ -288,6 +310,8 @@ class ChatStore extends ChangeNotifier {
 
   Future<void> openConversation(String convId) async {
     activeConversationId = convId;
+    _writeActiveConv(convId);
+    
     final raw = await api.getMessages(convId, limit: 50);
     messages = await _decryptMessages(raw);
     oldestTimestamp = messages.isNotEmpty ? messages.first.timestamp.toIso8601String() : null;
@@ -480,7 +504,6 @@ class ChatStore extends ChangeNotifier {
         return aPinned ? -1 : 1;
       }
       
-      // Сортировка по времени последнего обновления (updatedAt)
       final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);

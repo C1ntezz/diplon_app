@@ -1,10 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../services/chat_store.dart';
 import '../services/encryption_service.dart';
+import '../services/background_service.dart';
 import 'chat_list_screen.dart';
 
 import 'package:workmanager/workmanager.dart';
@@ -144,18 +145,32 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _proceedAfterLogin() async {
-    // Регистрируем фоновую задачу (не поддерживается в Web)
     if (!kIsWeb) {
-      Workmanager().registerPeriodicTask(
-        "diplom_messenger_sync_task",
-        "backgroundSync",
-        frequency: const Duration(minutes: 15),
-        constraints: Constraints(
-          networkType: NetworkType.connected,
-        ),
-      );
+      // 1. Запускаем background service (постоянный WebSocket в фоне)
+      try {
+        await startBackgroundService();
+        print('🔌 [Login] Background service started');
+      } catch (e) {
+        print('⚠️ [Login] Failed to start background service: $e');
+      }
 
-      // Запрашиваем отключение оптимизации батареи (чтобы socket не убивали в фоне)
+      // 2. WorkManager как fallback (HTTP опрос раз в 15 минут)
+      try {
+        Workmanager().registerPeriodicTask(
+          "diplom_messenger_sync_task",
+          "backgroundSync",
+          frequency: const Duration(minutes: 15),
+          constraints: Constraints(
+            networkType: NetworkType.connected,
+          ),
+          existingWorkPolicy: ExistingPeriodicWorkPolicy.replace,
+        );
+        print('⏳ [Login] WorkManager periodic task registered');
+      } catch (e) {
+        print('⚠️ [Login] WorkManager registration failed: $e');
+      }
+
+      // 3. Запрашиваем отключение оптимизации батареи
       try {
         await _requestBatteryOptimization();
       } catch (e) {

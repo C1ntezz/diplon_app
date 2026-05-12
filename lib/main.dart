@@ -18,42 +18,38 @@ import 'services/theme_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'services/notification_service.dart';
+import 'services/background_service.dart';
 import 'app_config.dart';
 import 'package:workmanager/workmanager.dart';
 
 // ─── WorkManager fallback (HTTP polling каждые 15 мин) ───
+// Срабатывает ТОЛЬКО когда background service (socket) неактивен.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final lastRun = DateTime.now().toIso8601String();
-      await prefs.setString('wm_last_run', lastRun);
-      print('⏳ [WorkManager] Задача: $task, время: $lastRun');
-
       final notifications = FlutterLocalNotificationsPlugin();
 
-      // Тестовый task — просто показываем уведомление
-      if (task == 'wmTest') {
-        await prefs.setString('wm_test_result', 'ok_$lastRun');
-        await notifications.show(
-          999, 'WorkManager тест', 'Фоновые задачи работают! $lastRun',
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'diplom_messenger_channel', 'Сообщения',
-              channelDescription: 'Уведомления о новых сообщениях',
-              importance: Importance.max, priority: Priority.high,
-              autoCancel: true,
-            ),
-          ),
-        );
-        print('⏳ [WorkManager] Тестовое уведомление отправлено');
-        return true;
-      }
-
-      // Основная задача — проверка сообщений
+      // Инициализируем уведомления в WorkManager изоляте
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       await notifications.initialize(const InitializationSettings(android: androidSettings));
+
+      // Проверяем, жив ли background service (сокет)
+      final lastActive = prefs.getString('bg_socket_last_active') ?? '';
+      if (lastActive.isNotEmpty) {
+        final lastTime = DateTime.tryParse(lastActive);
+        if (lastTime != null) {
+          final since = DateTime.now().difference(lastTime);
+          // Если сокет был активен менее 16 минут назад → он жив, не мешаем
+          if (since < const Duration(minutes: 16)) {
+            print('⏳ [WorkManager] Socket is alive (last: $since ago). Skipping.');
+            return true;
+          }
+        }
+      }
+
+      print('⏳ [WorkManager] Socket appears dead. HTTP fallback active.');
 
       const storage = FlutterSecureStorage();
       final token = await storage.read(key: 'accessToken') ??
@@ -76,24 +72,50 @@ void callbackDispatcher() {
       final List convs = jsonDecode(response.body);
       int totalUnread = 0;
       String? lastSender;
-      String? lastText;
+      String? lastType;
+
       for (final c in convs) {
         final unread = (c['unreadCount'] as int?) ?? 0;
         if (unread > 0) {
           totalUnread += unread;
           lastSender ??= (c['name'] ?? c['id'])?.toString();
+          // Try to get participant name for direct chats
+          if (lastSender == null && c['participants'] is List) {
+            for (final p in c['participants']) {
+              if (p is Map && p['_id'] != null) {
+                lastSender = (p['displayName'] ?? p['username'] ?? 'Новое сообщение').toString();
+                break;
+              }
+            }
+          }
           final lm = c['lastMessage'];
-          if (lm != null && lm is Map) lastText ??= lm['text']?.toString();
+          if (lm != null && lm is Map) {
+            lastType ??= lm['type']?.toString();
+          }
         }
       }
 
       final lastCount = prefs.getInt('wm_last_notified_count') ?? 0;
 
       if (totalUnread > 0 && totalUnread != lastCount) {
+        String body;
+        switch (lastType) {
+          case 'image': body = '📷 Изображение'; break;
+          case 'gif': body = '🎬 GIF'; break;
+          case 'voice': body = '🎤 Голосовое'; break;
+          case 'file': body = '📎 Файл'; break;
+          case 'system': body = ''; break;
+          default: body = ''; break;
+        }
+        if (body.isEmpty && totalUnread > 1) body = '$totalUnread непрочитанных';
+        if (body.isEmpty) body = 'Новое сообщение';
+
         await notifications.show(
           DateTime.now().millisecond,
-          totalUnread == 1 ? (lastSender ?? 'Новое сообщение') : 'Новые сообщения',
-          totalUnread == 1 ? (lastText ?? '') : '$totalUnread непрочитанных',
+          totalUnread == 1
+              ? (lastSender ?? 'Новое сообщение')
+              : 'Новые сообщения',
+          body,
           const NotificationDetails(
             android: AndroidNotificationDetails(
               'diplom_messenger_channel', 'Сообщения',
@@ -119,12 +141,18 @@ void main() async {
   catch (e, st) { print('❌ [Boot] NotificationService: $e\n$st'); }
 
   if (!kIsWeb) {
-    // WorkManager fallback
+    // WorkManager — инициализируем глобально
     try {
-      Workmanager().initialize(callbackDispatcher, isInDebugMode: true);
+      Workmanager().initialize(
+        callbackDispatcher,
+        isInDebugMode: kDebugMode, // в релизе ведёт себя стандартно
+      );
     } catch (e, st) { print('❌ [Boot] Workmanager: $e\n$st'); }
 
-
+    // Background service — configure (not start yet, will start after login)
+    try {
+      await configureBackgroundService();
+    } catch (e, st) { print('❌ [Boot] BackgroundService config: $e\n$st'); }
   }
 
   runApp(const App());
@@ -197,6 +225,13 @@ class _BootState extends State<Boot> {
         final socket = context.read<SocketService>();
         socket.connect(token: api.token!);
         await context.read<ChatStore>().init();
+
+        // Если уже залогинены — запускаем background service
+        if (!kIsWeb) {
+          try {
+            await startBackgroundService();
+          } catch (e) { print('⚠️ [Boot] startBackgroundService: $e'); }
+        }
       }
     } catch (e, st) {
       error = '$e';

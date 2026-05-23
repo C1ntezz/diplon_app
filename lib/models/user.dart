@@ -2,13 +2,20 @@
   final String id;
   final String username;
   final String? displayName;
+  final String? avatarUrl;
 
-  AppUser({required this.id, required this.username, this.displayName});
+  AppUser({
+    required this.id,
+    required this.username,
+    this.displayName,
+    this.avatarUrl,
+  });
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
         id: (j['_id'] ?? j['id'] ?? '').toString(),
         username: (j['username'] ?? '').toString(),
         displayName: j['displayName']?.toString(),
+        avatarUrl: j['avatarUrl']?.toString(),
       );
 
   String get title {

@@ -21,6 +21,7 @@ class ApiService {
   String? userId;
   String? username;
   String? displayName;
+  String? avatarUrl;
 
   Future<void> loadSession() async {
     try {
@@ -29,6 +30,7 @@ class ApiService {
       userId = await _storage.read(key: 'userId');
       username = await _storage.read(key: 'username');
       displayName = await _storage.read(key: 'displayName');
+      avatarUrl = await _storage.read(key: 'avatarUrl');
     } catch (e) {
       print('⚠️ [loadSession] Keystore corrupted or reset, clearing storage: $e');
       token = null;
@@ -36,6 +38,7 @@ class ApiService {
       userId = null;
       username = null;
       displayName = null;
+      avatarUrl = null;
       try {
         await _storage.delete(key: 'accessToken');
         await _storage.delete(key: 'jwt_token');
@@ -43,6 +46,7 @@ class ApiService {
         await _storage.delete(key: 'userId');
         await _storage.delete(key: 'username');
         await _storage.delete(key: 'displayName');
+        await _storage.delete(key: 'avatarUrl');
       } catch (_) {}
     }
   }
@@ -53,12 +57,14 @@ class ApiService {
     required String userId,
     required String username,
     required String displayName,
+    String? avatarUrl,
   }) async {
     this.token = token;
     this.refreshToken = refreshToken;
     this.userId = userId;
     this.username = username;
     this.displayName = displayName;
+    this.avatarUrl = avatarUrl;
 
     await _storage.write(key: 'accessToken', value: token);
     await _storage.write(key: 'jwt_token', value: token); // Для обратной совместимости локально
@@ -66,6 +72,11 @@ class ApiService {
     await _storage.write(key: 'userId', value: userId);
     await _storage.write(key: 'username', value: username);
     await _storage.write(key: 'displayName', value: displayName);
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      await _storage.write(key: 'avatarUrl', value: avatarUrl);
+    } else {
+      await _storage.delete(key: 'avatarUrl');
+    }
   }
 
   Future<void> logout() async {
@@ -76,7 +87,7 @@ class ApiService {
       print('Logout API error: $e');
     }
 
-    token = null; refreshToken = null; userId = null; username = null; displayName = null;
+    token = null; refreshToken = null; userId = null; username = null; displayName = null; avatarUrl = null;
     
     // Удаляем сессионные данные (НЕ deleteAll, чтобы ключи E2E остались)
     await _storage.delete(key: 'accessToken');
@@ -85,6 +96,7 @@ class ApiService {
     await _storage.delete(key: 'userId');
     await _storage.delete(key: 'username');
     await _storage.delete(key: 'displayName');
+    await _storage.delete(key: 'avatarUrl');
 
 
   }
@@ -92,6 +104,7 @@ class ApiService {
   Future<void> updateProfile({
     required String username,
     required String displayName,
+    String? avatarUrl,
   }) async {
     var u = username.trim();
     if (u.startsWith('@')) u = u.substring(1);
@@ -103,6 +116,7 @@ class ApiService {
       body: jsonEncode({
         'username': u,
         'displayName': d.isNotEmpty ? d : u,
+        'avatarUrl': avatarUrl ?? this.avatarUrl,
       }),
     );
 
@@ -119,6 +133,7 @@ class ApiService {
       userId: data['userId']?.toString() ?? userId ?? '',
       username: data['username']?.toString() ?? u,
       displayName: data['displayName']?.toString() ?? d,
+      avatarUrl: data['avatarUrl']?.toString(),
     );
   }
 

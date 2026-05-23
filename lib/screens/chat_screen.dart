@@ -1,10 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../app_config.dart';
-import '../models/gif_result.dart';
 import '../models/message.dart';
-import '../services/chat_store.dart';
 import '../services/api_service.dart';
+import '../services/chat_store.dart';
 import 'group_settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final input = TextEditingController();
   final scroll = ScrollController();
+  bool _uploadingAttachment = false;
 
   @override
   void initState() {
@@ -62,6 +64,93 @@ class _ChatScreenState extends State<ChatScreen> {
     FocusScope.of(context).unfocus();
   }
 
+  Future<void> _sendAttachment({
+    required List<int> bytes,
+    required String filename,
+    required String type,
+  }) async {
+    final store = context.read<ChatStore>();
+    final api = context.read<ApiService>();
+
+    if (store.activeConversationId == null) return;
+
+    setState(() => _uploadingAttachment = true);
+    try {
+      final mediaUrl = await api.uploadFile(bytes, filename);
+      await store.sendText(type == 'file' ? filename : '', type: type, mediaUrl: mediaUrl);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(type == 'image' ? 'Изображение отправлено' : 'Файл отправлен')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка загрузки: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploadingAttachment = false);
+    }
+  }
+
+  Future<void> _pickAndSendImage() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      maxHeight: 1920,
+      imageQuality: 90,
+    );
+    if (image == null) return;
+
+    final bytes = await image.readAsBytes();
+    await _sendAttachment(
+      bytes: bytes,
+      filename: image.name.isNotEmpty ? image.name : 'image.jpg',
+      type: 'image',
+    );
+  }
+
+  Future<void> _pickAndSendFile() async {
+    final result = await FilePicker.platform.pickFiles(withData: true);
+    final file = result?.files.single;
+    final bytes = file?.bytes;
+    if (file == null || bytes == null) return;
+
+    await _sendAttachment(
+      bytes: bytes,
+      filename: file.name,
+      type: 'file',
+    );
+  }
+
+  Future<void> _showAttachmentOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Изображение из галереи'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendImage();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_file),
+              title: const Text('Файл'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendFile();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showMessageActions(ChatMessage msg, bool canDelete) {
     if (msg.isDeleted || msg.type == 'system') return;
 
@@ -99,141 +188,6 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _showGifPicker(ChatStore store) async {
-    final searchController = TextEditingController(text: 'реакция');
-    var loading = false;
-    var results = <GifResult>[];
-    String? error;
-    var requestedInitialSearch = false;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) {
-          Future<void> search() async {
-            final query = searchController.text.trim();
-            if (query.isEmpty) return;
-
-            setSheetState(() {
-              loading = true;
-              error = null;
-            });
-
-            try {
-              final loaded = await context.read<ApiService>().searchGifs(query);
-              if (!sheetContext.mounted) return;
-              setSheetState(() => results = loaded);
-            } catch (e) {
-              if (!sheetContext.mounted) return;
-              setSheetState(() => error = e.toString());
-            } finally {
-              if (sheetContext.mounted) {
-                setSheetState(() => loading = false);
-              }
-            }
-          }
-
-          if (!requestedInitialSearch) {
-            requestedInitialSearch = true;
-            Future.microtask(search);
-          }
-
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                MediaQuery.of(context).viewInsets.bottom + 16,
-              ),
-              child: SizedBox(
-                height: MediaQuery.of(context).size.height * 0.72,
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: searchController,
-                            textInputAction: TextInputAction.search,
-                            onSubmitted: (_) => search(),
-                            decoration: const InputDecoration(
-                              prefixIcon: Icon(Icons.search),
-                              hintText: 'Поиск GIF',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          icon: const Icon(Icons.search),
-                          tooltip: 'Искать',
-                          onPressed: loading ? null : search,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (loading)
-                      const Expanded(child: Center(child: CircularProgressIndicator()))
-                    else if (error != null)
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      )
-                    else if (results.isEmpty)
-                      const Expanded(child: Center(child: Text('GIF не найдены')))
-                    else
-                      Expanded(
-                        child: GridView.builder(
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            mainAxisSpacing: 8,
-                            crossAxisSpacing: 8,
-                          ),
-                          itemCount: results.length,
-                          itemBuilder: (_, index) {
-                            final gif = results[index];
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () async {
-                                Navigator.of(sheetContext).pop();
-                                await store.sendGif(gif.gifUrl);
-                              },
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  gif.previewUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    color: Colors.grey.shade200,
-                                    alignment: Alignment.center,
-                                    child: const Icon(Icons.gif_box_outlined),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-
-    searchController.dispose();
   }
 
   Widget _buildReplyBlock(ChatMessage reply, bool isOwn) {
@@ -385,7 +339,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               'Сообщение удалено',
                               style: TextStyle(color: textColor, fontStyle: FontStyle.italic),
                             )
-                          else if ((msg.content ?? '').isNotEmpty)
+                          else if ((msg.content ?? '').isNotEmpty && msg.type != 'file')
                             Text(msg.content!, style: TextStyle(color: textColor)),
                           if (!msg.isDeleted &&
                               (msg.type == 'gif' || msg.type == 'image') &&
@@ -422,7 +376,23 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           ] else if (!msg.isDeleted && msg.mediaUrl != null && msg.mediaUrl!.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Text('📎 ', style: TextStyle(color: textColor, decoration: TextDecoration.underline)),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.attach_file, size: 18, color: textColor),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    (msg.content ?? '').isNotEmpty ? msg.content! : 'Файл',
+                                    style: TextStyle(
+                                      color: textColor,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                           if (isOwn && !msg.isDeleted)
                             Align(
@@ -489,16 +459,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.attach_file),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Файлы добавлю следующим шагом (через file_picker + /api/upload).')),
-                          );
-                        },
-                      ),
-                      TextButton(
-                        onPressed: () => _showGifPicker(store),
-                        child: const Text('GIF'),
+                        icon: _uploadingAttachment
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.attach_file),
+                        tooltip: 'Прикрепить',
+                        onPressed: _uploadingAttachment ? null : _showAttachmentOptions,
                       ),
                       Expanded(
                         child: TextField(

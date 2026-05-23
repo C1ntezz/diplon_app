@@ -260,6 +260,7 @@ class _LoginScreenState extends State<LoginScreen> {
         userId: data['userId'].toString(),
         username: data['username'].toString(),
         displayName: (data['displayName'] ?? data['username']).toString(),
+        avatarUrl: data['avatarUrl']?.toString(),
       );
 
       if (!mounted) return;

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../app_config.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
 import '../services/chat_store.dart';
@@ -23,6 +24,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<AppUser> _allUsers = [];
   List<AppUser> _searchResults = [];
   bool _loadingUsers = false;
+
+  String _resolveAvatarUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final baseUrl = AppConfig.baseUrl.endsWith('/')
+        ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
+        : AppConfig.baseUrl;
+    return '$baseUrl$url';
+  }
+
+  ImageProvider? _avatarImageProvider(String? avatarUrl) {
+    final value = avatarUrl?.trim();
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('asset://')) {
+      return AssetImage(value.substring('asset://'.length));
+    }
+    return NetworkImage(_resolveAvatarUrl(value));
+  }
 
   @override
   void initState() {
@@ -523,8 +541,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final user = _searchResults[index];
+        final avatar = _avatarImageProvider(user.avatarUrl);
         return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.person)),
+          leading: CircleAvatar(
+            backgroundImage: avatar,
+            child: avatar == null ? const Icon(Icons.person) : null,
+          ),
           title: Text(user.title),
           subtitle: Text('@${user.username}'),
           onTap: () => _startChatWithUser(user),
@@ -571,12 +593,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
           final title = c.type == 'group' ? (c.name ?? 'Group') : other.title;
           final isOnline = store.onlineUsers.contains(other.id);
+          final avatar = c.type == 'group' ? null : _avatarImageProvider(other.avatarUrl);
 
           return ListTile(
             leading: Stack(
               children: [
                 CircleAvatar(
-                  child: Text(title.isNotEmpty ? title[0].toUpperCase() : '?'),
+                  backgroundImage: avatar,
+                  child: avatar == null ? Text(title.isNotEmpty ? title[0].toUpperCase() : '?') : null,
                 ),
                 if (isOnline)
                   Positioned(

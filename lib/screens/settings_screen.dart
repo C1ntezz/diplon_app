@@ -1,5 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../app_config.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../services/theme_service.dart';
@@ -17,6 +20,180 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _savingProfile = false;
   bool _changingPassword = false;
+
+  String _resolveAvatarUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final baseUrl = AppConfig.baseUrl.endsWith('/')
+        ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
+        : AppConfig.baseUrl;
+    return '$baseUrl$url';
+  }
+
+  ImageProvider? _avatarImageProvider(String? avatarUrl) {
+    final value = avatarUrl?.trim();
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('asset://')) {
+      return AssetImage(value.substring('asset://'.length));
+    }
+    return NetworkImage(_resolveAvatarUrl(value));
+  }
+
+  Future<List<String>> _loadPresetAvatars() async {
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    final avatars = manifest
+        .listAssets()
+        .where((path) =>
+            path.startsWith('assets/profile_icons/') &&
+            RegExp(r'\.(png|jpg|jpeg|webp)$', caseSensitive: false).hasMatch(path))
+        .toList()
+      ..sort();
+    return avatars;
+  }
+
+  Future<void> _saveAvatar(String? avatarUrl) async {
+    final api = context.read<ApiService>();
+    setState(() => _savingProfile = true);
+
+    try {
+      await api.updateProfile(
+        username: api.username ?? '',
+        displayName: api.displayName ?? api.username ?? '',
+        avatarUrl: avatarUrl ?? '',
+      );
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Фото профиля обновлено')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
+
+  Future<void> _pickAvatarFromGallery() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    if (image == null) return;
+
+    setState(() => _savingProfile = true);
+    try {
+      final bytes = await image.readAsBytes();
+      final filename = image.name.isNotEmpty ? image.name : 'avatar.jpg';
+      final uploadedUrl = await context.read<ApiService>().uploadFile(bytes, filename);
+      if (!mounted) return;
+      await _saveAvatar(uploadedUrl);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка загрузки: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
+
+  Future<void> _showPresetAvatarsDialog() async {
+    late final List<String> avatars;
+    try {
+      avatars = await _loadPresetAvatars();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось загрузить готовые иконки: $e')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Готовые иконки'),
+        content: SizedBox(
+          width: 360,
+          child: avatars.isEmpty
+              ? const Text('Добавьте изображения в assets/profile_icons и выполните flutter pub get.')
+              : GridView.builder(
+                  shrinkWrap: true,
+                  itemCount: avatars.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                  ),
+                  itemBuilder: (_, index) {
+                    final assetPath = avatars[index];
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(40),
+                      onTap: () async {
+                        Navigator.of(dialogContext).pop();
+                        await _saveAvatar('asset://$assetPath');
+                      },
+                      child: CircleAvatar(
+                        backgroundImage: AssetImage(assetPath),
+                        backgroundColor: Colors.grey.shade200,
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAvatarOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Загрузить из галереи'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAvatarFromGallery();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.collections_outlined),
+              title: const Text('Выбрать из готовых'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _showPresetAvatarsDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_off_outlined),
+              title: const Text('Не ставить фото профиля'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _saveAvatar(null);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _logout(BuildContext context) async {
     final api = context.read<ApiService>();
@@ -344,6 +521,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final themeService = context.watch<ThemeService>();
     final displayName = (api.displayName ?? api.username ?? 'Пользователь').trim();
     final username = (api.username ?? '').trim();
+    final avatarProvider = _avatarImageProvider(api.avatarUrl);
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -373,39 +551,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
-                Stack(
-                  children: [
-                    CircleAvatar(
-                      radius: 46,
-                      backgroundColor: const Color(0xFFE9EEF5),
-                      child: Text(
-                        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black54,
+                GestureDetector(
+                  onTap: _savingProfile ? null : _showAvatarOptions,
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 46,
+                        backgroundColor: const Color(0xFFE9EEF5),
+                        backgroundImage: avatarProvider,
+                        child: avatarProvider == null
+                            ? Text(
+                                displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                                style: const TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black54,
+                                ),
+                              )
+                            : null,
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: _savingProfile
+                              ? const Padding(
+                                  padding: EdgeInsets.all(7),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.edit,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: Colors.blue,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: const Icon(
-                          Icons.edit,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -425,6 +617,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: _savingProfile ? null : _showAvatarOptions,
+                  icon: const Icon(Icons.account_circle_outlined),
+                  label: const Text('Фото профиля'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: _savingProfile ? null : _showEditProfileDialog,
                   icon: const Icon(Icons.edit_outlined),

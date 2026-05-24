@@ -6,6 +6,7 @@ import '../app_config.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../services/theme_service.dart';
+import '../services/background_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -198,21 +199,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _logout(BuildContext context) async {
     final api = context.read<ApiService>();
 
+    // Отключаем сокет
     context.read<SocketService>().disconnect();
+    
+    // Полностью останавливаем фоновый сервис, чтобы убрать постоянное уведомление из шторки
+    try {
+      await stopBackgroundService();
+    } catch (e) {
+      debugPrint("Ошибка остановки фонового сервиса: $e");
+    }
+    
+    // Стираем токен сессии и выходим на бэкенде
     await api.logout();
 
     if (!context.mounted) return;
 
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const Scaffold(
-          body: Center(
-            child: Text('Перезапустите приложение'),
-          ),
-        ),
-      ),
-      (_) => false,
-    );
+    // Закрываем приложение полностью (завершаем активность на Android)
+    await SystemNavigator.pop();
   }
 
   Future<void> _showEditProfileDialog() async {
@@ -712,6 +715,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () => _logout(context),
               ),
             ],
+          ),
+          const SizedBox(height: 18),
+          // Версия приложения
+          Center(
+            child: Text(
+              'Версия 0.16.3',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+              ),
+            ),
           ),
         ],
       ),

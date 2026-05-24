@@ -76,8 +76,9 @@ Future<bool> onBackgroundStart(ServiceInstance service) async {
       final activeConvId = prefs.getString(_kActiveConvId) ?? '';
       final msgConvId = (data['conversationId'] ?? '').toString();
 
+      // Не шлём уведомление только если юзер прямо сейчас смотрит этот чат
       if (appForeground && activeConvId.isNotEmpty && activeConvId == msgConvId) {
-        return; // User is viewing this chat — no notification
+        return;
       }
 
       String senderName = 'Новое сообщение';

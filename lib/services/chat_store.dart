@@ -93,6 +93,23 @@ class ChatStore extends ChangeNotifier {
   void _bindSocket() {
     final s = socketService.socket;
 
+    // При успешном подключении — сразу грузим чаты
+    s.on('connect', (_) {
+      debugPrint('🔌 [ChatStore] Socket connected, loading conversations...');
+      loadConversations().then((_) {
+        debugPrint('🔌 [ChatStore] Conversations loaded after connect');
+      }).catchError((e) {
+        debugPrint('⚠️ [ChatStore] Failed to load conversations on connect: $e');
+      });
+    });
+
+    // При разрыве — пробуем переподключиться
+    s.on('disconnect', (_) {
+      Future.delayed(const Duration(seconds: 2), () {
+        try { s.connect(); } catch (_) {}
+      });
+    });
+
     s.on('newMessage', (data) async {
       var msg = ChatMessage.fromJson(Map<String, dynamic>.from(data));
       msg = await _decryptIfNeeded(msg);
@@ -106,9 +123,10 @@ class ChatStore extends ChangeNotifier {
         notifyListeners();
       }
 
-      if (!isMyMessage) {
+      // Для входящих сообщений сразу подтверждаем доставку (delivered),
+    // но НЕ помечаем как прочитанные — это произойдёт когда юзер откроет чат
+    if (!isMyMessage) {
         if (msg.status == 'sent') s.emit('messageDelivered', msg.id);
-        if (!msg.readBy.contains(api.userId)) s.emit('messageRead', msg.id);
       }
       
       // Обновляем список чатов (чтобы обновилось последнее сообщение и сортировка)
@@ -325,6 +343,15 @@ class ChatStore extends ChangeNotifier {
     } catch (e) {
       debugPrint('Ошибка отметки сообщений прочитанными: $e');
     }
+  }
+
+  void closeActiveConversation() {
+    activeConversationId = null;
+    _writeActiveConv(null);
+    messages = [];
+    oldestTimestamp = null;
+    replyingTo = null;
+    notifyListeners();
   }
 
   Future<void> loadMore() async {

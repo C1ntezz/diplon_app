@@ -225,6 +225,7 @@ class _BootState extends State<Boot> {
         final socket = context.read<SocketService>();
         socket.connect(token: api.token!);
         await context.read<ChatStore>().init();
+        socket.activateConnection();
 
         // Если уже залогинены — запускаем background service
         if (!kIsWeb) {

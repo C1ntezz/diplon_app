@@ -35,6 +35,10 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     input.dispose();
     scroll.dispose();
+    
+    // Сбрасываем активный чат в ChatStore при выходе с экрана диалога.
+    context.read<ChatStore>().closeActiveConversation();
+    
     super.dispose();
   }
 

@@ -145,6 +145,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _proceedAfterLogin() async {
+    // Подключаем сокет только сейчас — ключи уже гарантированно готовы
+    context.read<SocketService>().activateConnection();
+    
     if (!kIsWeb) {
       // 1. Запускаем background service (постоянный WebSocket в фоне)
       try {
@@ -264,9 +267,10 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (!mounted) return;
+      // Создаём сокет (без подключения — обработчики ещё не привязаны)
       context.read<SocketService>().connect(token: api.token!);
       
-      // Проверяем статус ключей (НЕ генерируем автоматически)
+      // Проверяем статус ключей (ChatStore.init вызовет _bindSocket — обработчики готовы)
       final keyStatus = await context.read<ChatStore>().init();
 
       if (!mounted) return;
@@ -274,8 +278,13 @@ class _LoginScreenState extends State<LoginScreen> {
       if (keyStatus == KeyStatus.ready) {
         // Ключи на месте — сразу в чаты
         await _proceedAfterLogin();
+      } else if (!isLogin && keyStatus == KeyStatus.missing) {
+        // При регистрации (новый аккаунт) — сразу генерируем ключи без диалога
+        final encryption = context.read<EncryptionService>();
+        await encryption.generateKeys(api);
+        await _proceedAfterLogin();
       } else {
-        // Ключей нет или они битые — показываем диалог
+        // При логине ключей нет или они битые — показываем диалог
         await _handleKeySetup(api, keyStatus);
       }
     } catch (e) {

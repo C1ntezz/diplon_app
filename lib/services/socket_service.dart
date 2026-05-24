@@ -13,26 +13,28 @@ class SocketService {
   void connect({required String token}) {
     _socket?.disconnect();
     
-    print('🔌 [Socket] Connecting with token...');
+    print('🔌 [Socket] Creating socket (listeners first, connect later)...');
+
+    final opts = IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .setAuth({'token': token})
+        .build();
+    opts['autoConnect'] = false;  // Явно запрещаем — подключимся после _bindSocket()
 
     _socket = IO.io(
       AppConfig.socketUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableAutoConnect()
-          .setAuth({'token': token})
-          .build(),
+      opts,
     );
 
-    _socket!.onConnect((_) {
+    _socket!.on('connect', (_) {
       print('🔌 [Socket] Connected: ${_socket!.id}');
     });
 
-    _socket!.onDisconnect((reason) {
+    _socket!.on('disconnect', (reason) {
       print('🔌 [Socket] Disconnected: $reason');
     });
 
-    _socket!.onConnectError((err) async {
+    _socket!.on('connect_error', (err) async {
       print('🔌 [Socket] Connection Error: $err');
       if (err.toString().contains('Authentication error') || err.toString().contains('401')) {
         print('⚠️ [Socket] Ошибка авторизации. Обновляем токен...');
@@ -47,6 +49,17 @@ class SocketService {
       }
     });
 
+    // НЕ вызываем _socket!.connect() здесь — соединение запустится после того,
+    // как ChatStore привяжет все обработчики через _bindSocket()
+  }
+
+  /// Запускает подключение сокета (должен вызываться ПОСЛЕ ChatStore.init/_bindSocket)
+  void activateConnection() {
+    if (_socket == null) {
+      print('❌ [Socket] activateConnection: _socket is NULL — connect() was never called!');
+      return;
+    }
+    print('🔌 [Socket] Activating connection...');
     _socket!.connect();
   }
 

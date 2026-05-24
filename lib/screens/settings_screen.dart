@@ -720,7 +720,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Версия приложения
           Center(
             child: Text(
-              'Версия 0.16.3',
+              'Версия 0.17',
               style: TextStyle(
                 color: Colors.grey,
                 fontSize: 12,

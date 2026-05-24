@@ -331,12 +331,20 @@ class ChatStore extends ChangeNotifier {
     _writeActiveConv(convId);
     
     final raw = await api.getMessages(convId, limit: 50);
-    messages = await _decryptMessages(raw);
+    
+    // Показываем чат мгновенно (с зашифрованными плейсхолдерами)
+    messages = raw;
     oldestTimestamp = messages.isNotEmpty ? messages.first.timestamp.toIso8601String() : null;
     typingText = null;
     replyingTo = null;
     _markConversationReadLocally(convId, notify: false);
     notifyListeners();
+
+    // Расшифровываем асинхронно, не блокируя UI
+    _decryptMessages(raw).then((decrypted) {
+      messages = decrypted;
+      notifyListeners();
+    });
 
     try {
       await api.markConversationRead(convId);
@@ -476,8 +484,12 @@ class ChatStore extends ChangeNotifier {
 
   Future<List<ChatMessage>> _decryptMessages(List<ChatMessage> list) async {
     final result = <ChatMessage>[];
-    for (final msg in list) {
-      result.add(await _decryptIfNeeded(msg));
+    for (var i = 0; i < list.length; i++) {
+      result.add(await _decryptIfNeeded(list[i]));
+      // Уступаем UI-потоку каждые 3 сообщения — RSA через FFI блокирует поток
+      if (i % 3 == 2) {
+        await Future(() {});
+      }
     }
     return result;
   }

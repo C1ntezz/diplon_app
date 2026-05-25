@@ -9,6 +9,8 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../app_config.dart';
 
+const _kCustomBaseUrl = 'custom_base_url';
+
 /// SharedPreferences keys for inter-isolate communication
 const _kAppForeground = 'app_foreground';
 const _kActiveConvId = 'active_conv_id';
@@ -135,7 +137,7 @@ Future<bool> onBackgroundStart(ServiceInstance service) async {
         print('🔌 [BG] Connecting socket...');
 
         socket = io.io(
-          AppConfig.socketUrl,
+          prefs?.getString(_kCustomBaseUrl) ?? 'https://abdalbuntu.swallow-lydian.ts.net',
           io.OptionBuilder()
               .setTransports(['websocket'])
               .enableAutoConnect()

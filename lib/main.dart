@@ -56,12 +56,13 @@ void callbackDispatcher() {
                     await storage.read(key: 'jwt_token');
       if (token == null) return true;
 
-      final base = AppConfig.baseUrl.endsWith('/')
-          ? AppConfig.baseUrl.substring(0, AppConfig.baseUrl.length - 1)
-          : AppConfig.baseUrl;
+      // Читаем кастомный URL из SharedPreferences (изолят не имеет доступа к AppConfig)
+      final defaultBase = 'https://abdalbuntu.swallow-lydian.ts.net';
+      final base = prefs.getString('custom_base_url') ?? defaultBase;
+      final baseTrimmed = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
 
       final response = await http.get(
-        Uri.parse('$base/api/conversations'),
+        Uri.parse('$baseTrimmed/api/conversations'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -79,7 +80,6 @@ void callbackDispatcher() {
         if (unread > 0) {
           totalUnread += unread;
           lastSender ??= (c['name'] ?? c['id'])?.toString();
-          // Try to get participant name for direct chats
           if (lastSender == null && c['participants'] is List) {
             for (final p in c['participants']) {
               if (p is Map && p['_id'] != null) {
@@ -137,19 +137,20 @@ void callbackDispatcher() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Загружаем кастомный URL сервера ДО всего остального
+  await AppConfig.init();
+
   try { await NotificationService().init(); }
   catch (e, st) { print('❌ [Boot] NotificationService: $e\n$st'); }
 
   if (!kIsWeb) {
-    // WorkManager — инициализируем глобально
     try {
       Workmanager().initialize(
         callbackDispatcher,
-        isInDebugMode: kDebugMode, // в релизе ведёт себя стандартно
+        isInDebugMode: kDebugMode,
       );
     } catch (e, st) { print('❌ [Boot] Workmanager: $e\n$st'); }
 
-    // Background service — configure (not start yet, will start after login)
     try {
       await configureBackgroundService();
     } catch (e, st) { print('❌ [Boot] BackgroundService config: $e\n$st'); }
@@ -227,7 +228,6 @@ class _BootState extends State<Boot> {
         await context.read<ChatStore>().init();
         socket.activateConnection();
 
-        // Если уже залогинены — запускаем background service
         if (!kIsWeb) {
           try {
             await startBackgroundService();

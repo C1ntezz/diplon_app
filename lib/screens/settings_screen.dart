@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/socket_service.dart';
 import '../services/theme_service.dart';
 import '../services/background_service.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -199,22 +200,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _logout(BuildContext context) async {
     final api = context.read<ApiService>();
 
-    // Отключаем сокет
     context.read<SocketService>().disconnect();
     
-    // Полностью останавливаем фоновый сервис, чтобы убрать постоянное уведомление из шторки
     try {
       await stopBackgroundService();
     } catch (e) {
       debugPrint("Ошибка остановки фонового сервиса: $e");
     }
     
-    // Стираем токен сессии и выходим на бэкенде
     await api.logout();
 
     if (!context.mounted) return;
 
-    // Закрываем приложение полностью (завершаем активность на Android)
     await SystemNavigator.pop();
   }
 
@@ -323,9 +320,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-
-    // Контроллеры нельзя уничтожать сразу после showDialog в Web/debug:
-    // закрывающийся route еще может достраивать TextField в течение кадра.
   }
 
   String? _passwordRuleError(String password) {
@@ -513,9 +507,138 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
 
-    // Контроллеры нельзя уничтожать сразу после showDialog в Web/debug:
-    // закрывающийся route еще может достраивать TextField в течение кадра.
+  // ─── Server URL dialog ───
+  Future<void> _showServerUrlDialog() async {
+    final controller = TextEditingController(text: AppConfig.baseUrl);
+    final isCustom = AppConfig.isCustom;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Адрес сервера'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Укажите URL вашего сервера. Это пригодится при самостоятельном хостинге мессенджера.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: 'URL сервера',
+                hintText: 'https://your-server.com',
+                prefixIcon: const Icon(Icons.dns_outlined),
+                border: const OutlineInputBorder(),
+                suffixIcon: isCustom
+                    ? IconButton(
+                        tooltip: 'Сбросить',
+                        icon: const Icon(Icons.restore),
+                        onPressed: () {
+                          controller.text = 'https://abdalbuntu.swallow-lydian.ts.net';
+                        },
+                      )
+                    : null,
+              ),
+            ),
+            if (isCustom)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Используется кастомный сервер',
+                        style: TextStyle(fontSize: 12, color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            const Text(
+              'Изменение сервера потребует повторного входа.',
+              style: TextStyle(fontSize: 12, color: Colors.red),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final url = controller.text.trim();
+              if (url.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('URL не может быть пустым')),
+                );
+                return;
+              }
+
+              // Простая валидация URL
+              final uri = Uri.tryParse(url);
+              if (uri == null || (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https'))) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Введите корректный URL (начинается с http:// или https://)')),
+                );
+                return;
+              }
+
+              // Не даём слать запросы на локалхост (чтобы не вылетало)
+              if (uri.host == 'localhost' || uri.host == '127.0.0.1') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Локальные адреса не поддерживаются на устройстве')),
+                );
+                return;
+              }
+
+              Navigator.of(dialogContext).pop();
+
+              // Сохраняем и перезагружаемся
+              await AppConfig.setCustomServer(url);
+
+              if (!mounted) return;
+
+              // Разлогиниваем и возвращаем на экран логина
+              try {
+                context.read<SocketService>().disconnect();
+                await stopBackgroundService();
+              } catch (_) {}
+
+              final api = context.read<ApiService>();
+              await api.logout();
+
+              if (!mounted) return;
+
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (_) => false,
+              );
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Сервер изменён. Войдите заново.'),
+                    duration: Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -705,6 +828,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           const SizedBox(height: 18),
+          // ─── Секция: Сервер ───
+          _buildSectionCard(
+            children: [
+              _ActionTile(
+                icon: Icons.dns_outlined,
+                title: 'Адрес сервера',
+                subtitle: AppConfig.isCustom ? AppConfig.baseUrl : 'По умолчанию',
+                onTap: _showServerUrlDialog,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
           _buildSectionCard(
             children: [
               _ActionTile(
@@ -717,10 +852,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           const SizedBox(height: 18),
-          // Версия приложения
           Center(
             child: Text(
-              'Версия 0.17',
+              'Версия 0.18',
               style: TextStyle(
                 color: Colors.grey,
                 fontSize: 12,
@@ -781,6 +915,7 @@ class _InfoTile extends StatelessWidget {
 class _ActionTile extends StatelessWidget {
   final IconData icon;
   final String title;
+  final String? subtitle;
   final VoidCallback? onTap;
   final Color? iconColor;
   final Color? textColor;
@@ -788,6 +923,7 @@ class _ActionTile extends StatelessWidget {
   const _ActionTile({
     required this.icon,
     required this.title,
+    this.subtitle,
     required this.onTap,
     this.iconColor,
     this.textColor,
@@ -806,6 +942,9 @@ class _ActionTile extends StatelessWidget {
           color: textColor,
         ),
       ),
+      subtitle: subtitle != null
+          ? Text(subtitle!, style: const TextStyle(fontSize: 12, color: Colors.grey))
+          : null,
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
